@@ -123,6 +123,10 @@ export default function ProfileInput() {
       } else {
         result = await parseResume(resumeText)
       }
+      const hasData = result.name || Object.keys(result.tech_skills || {}).length > 0
+      if (!hasData) {
+        setParseError('未从简历中提取到有效信息，请手动填写或重新上传')
+      }
       setParsed({
         ...result,
         soft_skills: Object.keys(result.soft_skills || {}).length > 0
@@ -141,7 +145,11 @@ export default function ProfileInput() {
   }
 
   const handleSkipParse = () => {
-    setParsed(p => ({ ...p, soft_skills: { ...DEFAULT_SOFT_SKILLS } }))
+    setParsed(p => ({
+      ...p,
+      soft_skills: { ...DEFAULT_SOFT_SKILLS },
+      tech_skills: Object.keys(p.tech_skills).length === 0 ? { 'Python': 60, 'SQL': 50 } : p.tech_skills,
+    }))
     setStep('review')
   }
 
