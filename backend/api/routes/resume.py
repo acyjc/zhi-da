@@ -204,6 +204,56 @@ def _parse_resume_fallback(text: str) -> ResumeParseResponse:
     )
 
 
+# 从上传文件中提取纯文本，支持 PDF/DOCX/TXT
+# PDF 优先用 pdfminer.six（布局容忍度高），PyPDF2 作为兜底
+def _extract_pdf_text(content: bytes) -> str:
+    try:
+        from pdfminer.high_level import extract_text
+        import io
+        return extract_text(io.BytesIO(content))
+    except ImportError:
+        pass
+    try:
+        from PyPDF2 import PdfReader
+        import io
+        reader = PdfReader(io.BytesIO(content))
+        texts = []
+        for page in reader.pages:
+            text = page.extract_text()
+            if text:
+                texts.append(text)
+        return "\n".join(texts)
+    except Exception:
+        return ""
+
+
+def _extract_docx_text(content: bytes) -> str:
+    try:
+        from docx import Document
+        import io
+        doc = Document(io.BytesIO(content))
+        return "\n".join([para.text for para in doc.paragraphs if para.text.strip()])
+    except Exception:
+        return ""
+
+
+async def extract_text_from_file(file: UploadFile) -> str:
+    content = await file.read()
+    filename = file.filename or ""
+    ext = os.path.splitext(filename)[1].lower()
+
+    if ext == ".pdf":
+        text = _extract_pdf_text(content)
+        logger.info("PDF提取: %d 字符", len(text))
+        if not text.strip():
+            logger.warning("PDF文本为空，可能为扫描版PDF，请上传可复制文字的PDF或粘贴文本")
+        return text
+    elif ext == ".docx":
+        return _extract_docx_text(content)
+    else:
+        return content.decode("utf-8", errors="ignore")
+
+
 @router.post("/parse", response_model=ResumeParseResponse)
 async def parse_resume(req: ResumeParseRequest, db: AsyncSession = Depends(get_db)):
     try:

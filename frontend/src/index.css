@@ -99,6 +99,41 @@ body {
 .empty-state h3 { font-size: var(--text-base); font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
 .empty-state p { font-size: var(--text-sm); color: var(--text-tertiary); }
 
+@keyframes parseDot1 { 0%,100% { transform: scale(1); opacity: 0.4; } 50% { transform: scale(1.3); opacity: 1; } }
+@keyframes parseDot2 { 0%,100% { transform: scale(1); opacity: 0.4; } 50% { transform: scale(1.3); opacity: 1; } }
+@keyframes parseDot3 { 0%,100% { transform: scale(1); opacity: 0.4; } 50% { transform: scale(1.3); opacity: 1; } }
+@keyframes parseRing { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+.parsing-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(248,247,244,0.94); backdrop-filter: blur(10px);
+  display: flex; align-items: center; justify-content: center;
+}
+
+.parsing-ring {
+  width: 80px; height: 80px; margin: 0 auto 28px; position: relative;
+}
+.parsing-ring::before {
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
+  border: 3px solid var(--border-light);
+  border-top-color: var(--accent-blue);
+  animation: parseRing 1s linear infinite;
+}
+.parsing-ring::after {
+  content: 'AI'; position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-family: var(--font-display); color: var(--accent-blue);
+  letter-spacing: 1px; font-weight: 700;
+}
+
+.parsing-dots { display: flex; gap: 8px; justify-content: center; margin: 16px 0; }
+.parsing-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--accent-blue);
+}
+.parsing-dot:nth-child(1) { animation: parseDot1 1.2s ease-in-out infinite; }
+.parsing-dot:nth-child(2) { animation: parseDot2 1.2s ease-in-out infinite 0.2s; }
+.parsing-dot:nth-child(3) { animation: parseDot3 1.2s ease-in-out infinite 0.4s; }
+
 @media (max-width: 768px) {
   :root { --radius-lg: 12px; }
   .btn-lg { padding: 12px 24px; font-size: var(--text-sm); }

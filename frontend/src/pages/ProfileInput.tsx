@@ -56,11 +56,10 @@ function humanFileSize(bytes: number) {
 export default function ProfileInput() {
   const navigate = useNavigate()
   const { setStudent, setJobs, setDiagnosisResult, student: existingStudent } = useAppStore()
-  const [step, setStep] = useState<'upload' | 'review' | 'submitting'>('upload')
+  const [step, setStep] = useState<'upload' | 'parsing' | 'parsing-result' | 'review' | 'submitting'>('upload')
   const [resumeText, setResumeText] = useState('')
   const [resumeFile, setResumeFile] = useState<File | null>(null)
   const [fileError, setFileError] = useState('')
-  const [parsing, setParsing] = useState(false)
   const [parseError, setParseError] = useState('')
   const [parsed, setParsed] = useState<ParsedData>(initialParsed)
   const [error, setError] = useState('')
@@ -111,11 +110,12 @@ export default function ProfileInput() {
     setResumeFile(file)
   }
 
-  // 调用后端 AI 解析简历，失败时使用默认软技能
+  // 调用后端 AI 解析简历——弹出 loading 动画，等待 LLM 返回后展示结果预览
   const handleParse = async () => {
     if (!resumeText.trim() && !resumeFile) { setParseError('请先上传简历文件或粘贴简历内容'); return }
-    setParsing(true)
     setParseError('')
+    setStep('parsing')
+
     try {
       let result
       if (resumeFile) {
@@ -133,15 +133,18 @@ export default function ProfileInput() {
           ? result.soft_skills
           : { ...DEFAULT_SOFT_SKILLS },
       })
-      setStep('review')
+      setStep('parsing-result')
     } catch (e: any) {
       const msg = e?.response?.data?.detail || e?.response?.data?.error || e?.message || 'AI解析失败'
       setParseError(`${msg}，请手动填写下方信息`)
       setParsed(p => ({ ...p, soft_skills: { ...DEFAULT_SOFT_SKILLS } }))
       setStep('review')
-    } finally {
-      setParsing(false)
     }
+  }
+
+  // 用户确认解析结果后进入编辑步骤
+  const confirmParsing = () => {
+    setStep('review')
   }
 
   const handleSkipParse = () => {
@@ -210,7 +213,7 @@ export default function ProfileInput() {
   }
 
   // 步骤指示器标签
-  const stepLabels = ['上传简历', '确认信息']
+  const stepLabels = ['上传简历', 'AI 解析', '确认信息']
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-page)', padding: '32px 24px' }}>
@@ -223,24 +226,25 @@ export default function ProfileInput() {
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 32, fontWeight: 700, marginBottom: 6 }}>
             开启你的成长诊断
           </h2>
-          <p style={{ color: 'var(--text-tertiary)', fontSize: 14 }}>上传简历，AI自动解析 → 确认信息 → 一键诊断</p>
+          <p style={{ color: 'var(--text-tertiary)', fontSize: 14 }}>上传简历 → AI智能解析 → 确认信息 → 一键诊断</p>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 60, marginBottom: 28 }}>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 40, marginBottom: 28 }}>
           {stepLabels.map((label, i) => {
-            const stepKey = i === 0 ? 'upload' : 'review'
-            const isActive = step === stepKey || (stepKey === 'review' && step === 'submitting')
-            const isDone = step === 'submitting' && stepKey === 'upload'
-            const isCurrent = step === stepKey
+            const keys = ['upload', 'parsing', 'review'] as const
+            const stepKey = keys[i]
+            const isDone = (step === 'parsing-result' || step === 'review' || step === 'submitting') && i <= 1
+            const isActive = step === stepKey || step === 'parsing' || (stepKey === 'parsing' && (step === 'parsing-result' || step === 'review' || step === 'submitting')) || (stepKey === 'review' && (step === 'review' || step === 'submitting'))
+            const isCurrent = (stepKey === 'parsing' && step === 'parsing') || (stepKey === 'review' && step === 'parsing-result')
             return (
               <div key={stepKey} style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: isActive ? 1 : 0.35, transition: 'opacity 0.3s' }}>
                 <div style={{
                   width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 13, fontWeight: 700,
-                  background: isDone || (stepKey === 'review' && step === 'submitting') ? 'var(--accent-green)' : isCurrent ? 'var(--accent-blue)' : 'var(--border-light)',
-                  color: isDone || isCurrent || (stepKey === 'review' && step === 'submitting') ? '#fff' : 'var(--text-tertiary)',
+                  background: isDone ? 'var(--accent-green)' : isCurrent ? 'var(--accent-blue)' : 'var(--border-light)',
+                  color: isDone || isCurrent ? '#fff' : 'var(--text-tertiary)',
                 }}>
-                  {isDone || (stepKey === 'upload' && step === 'submitting') ? '✓' : i + 1}
+                  {isDone ? '✓' : i + 1}
                 </div>
                 <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-secondary)' }}>{label}</span>
               </div>
@@ -283,8 +287,111 @@ export default function ProfileInput() {
 
             <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
               <button className="btn btn-ghost" onClick={handleSkipParse}>跳过解析，手动填写</button>
-              <button className="btn btn-primary" onClick={handleParse} disabled={parsing} style={{ opacity: parsing ? 0.6 : 1 }}>
-                {parsing ? 'AI 解析中...' : 'AI 解析简历 →'}
+              <button className="btn btn-primary" onClick={handleParse}>
+                AI 解析简历 →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* AI 解析动画——全屏 loading overlay */}
+        {step === 'parsing' && (
+          <div className="parsing-overlay">
+            <div className="parsing-card" style={{ textAlign: 'center' }}>
+              <div className="parsing-ring" />
+              <div style={{ fontSize: 18, fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
+                AI 正在解析简历
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                {resumeFile ? `正在识别 ${resumeFile.name} ...` : '正在分析文本内容...'}
+              </div>
+              <div className="parsing-dots">
+                <div className="parsing-dot" />
+                <div className="parsing-dot" />
+                <div className="parsing-dot" />
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', maxWidth: 300, margin: '0 auto', lineHeight: 1.6 }}>
+                正在提取姓名、技能、项目经历等信息，请稍候
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* AI 解析结果预览——用户确认后再进入编辑 */}
+        {step === 'parsing-result' && (
+          <div className="card" style={{ padding: 36, animation: 'fadeIn 0.4s ease-out' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: '50%', background: 'var(--accent-green)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 18,
+              }}>
+                ✓
+              </div>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' }}>AI 解析完成</div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>请确认以下信息是否正确，如有误可查看或手动修改</div>
+              </div>
+            </div>
+
+            {parsed.summary && (
+              <div style={{ padding: '12px 16px', borderRadius: 'var(--radius-sm)', background: '#eff6ff', border: '1px solid #dbeafe', marginBottom: 16, fontSize: 13, color: 'var(--accent-blue)', lineHeight: 1.6 }}>
+                {parsed.summary}
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+              <div style={{ padding: '10px 14px', borderRadius: 8, background: 'var(--bg-hover)' }}>
+                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>姓名</span>
+                <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>{parsed.name || '未识别'}</div>
+              </div>
+              <div style={{ padding: '10px 14px', borderRadius: 8, background: 'var(--bg-hover)' }}>
+                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>目标岗位</span>
+                <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--accent-teal)' }}>{parsed.target_job || '未识别'}</div>
+              </div>
+              <div style={{ padding: '10px 14px', borderRadius: 8, background: 'var(--bg-hover)' }}>
+                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>年级</span>
+                <div style={{ fontSize: 14, color: 'var(--text-primary)' }}>{parsed.grade || '未识别'}</div>
+              </div>
+              <div style={{ padding: '10px 14px', borderRadius: 8, background: 'var(--bg-hover)' }}>
+                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>专业</span>
+                <div style={{ fontSize: 14, color: 'var(--text-primary)' }}>{parsed.major || '未识别'}</div>
+              </div>
+            </div>
+
+            {Object.keys(parsed.tech_skills).length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6 }}>技术技能</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {Object.entries(parsed.tech_skills).map(([name, score]) => (
+                    <span key={name} style={{
+                      padding: '3px 10px', borderRadius: 14, fontSize: 12,
+                      background: 'rgba(91,123,181,0.1)', color: 'var(--accent-blue)', fontWeight: 500,
+                    }}>
+                      {name} <span style={{ fontSize: 10, opacity: 0.6 }}>{score}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {parsed.project_exp.length > 0 && (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6 }}>项目经历</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {parsed.project_exp.map((p: any, i: number) => (
+                    <div key={i} style={{ padding: '8px 12px', borderRadius: 8, background: 'var(--bg-hover)', fontSize: 13, color: 'var(--text-primary)' }}>
+                      <span style={{ fontWeight: 600 }}>{p.name}</span>
+                      {p.role && <span style={{ marginLeft: 8, color: 'var(--text-tertiary)', fontSize: 11 }}>{p.role}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost" onClick={() => setStep('upload')}>← 重新上传</button>
+              <button className="btn btn-primary" onClick={confirmParsing}>
+                确认并编辑信息 →
               </button>
             </div>
           </div>
