@@ -194,13 +194,17 @@ export default function ProfileInput() {
       }
       setStudent(student)
       localStorage.setItem('student_id', student.id)
-      const jobs = await listJobs()
-      setJobs(jobs)
+      listJobs().then(jobs => setJobs(jobs)).catch(() => {})
       setDiagnosisResult(null)
       navigate('/dashboard')
     } catch (e: any) {
-      const msg = e?.response?.data?.detail || e?.message || '提交失败，请检查网络连接后重试'
-      setError(msg)
+      const detail = e?.response?.data?.detail || e?.response?.data?.error || ''
+      const msg = detail || e?.message || '提交失败，请检查网络连接后重试'
+      if (e?.code === 'ERR_NETWORK') {
+        setError('无法连接后端服务，请确认 python main.py 已启动')
+      } else {
+        setError(msg)
+      }
       setStep('review')
     }
   }

@@ -96,7 +96,7 @@ def _mock_parse_resume(text: str) -> dict:
     text_lower = text.lower()
     result: dict = {}
 
-    name_match = re.search(r'[姓名][：:\s]*([^\s,，。\n]{2,4})', text)
+    name_match = re.search(r'(?:姓名|名字)[：:\s]*([\u4e00-\u9fff]{2,4}|[A-Z][a-z]+\s+[A-Z][a-z]+)', text)
     if name_match:
         result["name"] = name_match.group(1)
     else:
@@ -104,6 +104,10 @@ def _mock_parse_resume(text: str) -> dict:
         first_word = first_line.split()[0] if first_line.split() else ''
         if 2 <= len(first_word) <= 4 and re.match(r'^[\u4e00-\u9fff]+$', first_word):
             result["name"] = first_word
+        else:
+            en_name = re.search(r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)', first_line)
+            if en_name:
+                result["name"] = en_name.group(1)
 
     grade_match = re.search(r'(大一|大二|大三|大四|研一|研二|研三|201\d|202\d)', text)
     if grade_match:
@@ -145,17 +149,39 @@ def _mock_parse_resume(text: str) -> dict:
     result["domain_knowledge"] = domain_knowledge
 
     projects = []
-    proj_matches = re.findall(
-        r'(?:项目|课题).*?[：:\s]*([^\n]{5,60})',
-        text
+    proj_section = re.search(
+        r'(?:项目经验|项目经历|实习经历|项目实践|科研项目)[：:\s]*(.*?)(?=\n\n|\n(?:技能|教育|语言|证书|获奖|自我评价|$)|\Z)',
+        text, re.DOTALL
     )
-    for i, pm in enumerate(proj_matches[:3]):
-        projects.append({
-            "name": pm.strip(),
-            "role": "开发工程师",
-            "description": pm.strip(),
-            "duration": "",
-        })
+    if proj_section:
+        proj_text = proj_section.group(1)
+        proj_blocks = re.split(r'\n\s*(?:\d+[\.、)]\s*|●|•|-\s*)', proj_text)
+        for block in proj_blocks:
+            block = block.strip()
+            if len(block) < 5:
+                continue
+            lines = [l.strip() for l in block.split('\n') if l.strip()]
+            proj_name = re.sub(r'^\d+[\.、)]\s*', '', lines[0]) if lines else block[:40]
+            desc = ' '.join(lines[1:]) if len(lines) > 1 else lines[0] if lines else ''
+            role_match = re.search(r'(?:后端|前端|全栈|算法|数据分析|测试|运维|产品|Android|iOS).*?(?:开发|工程师|实习)', block)
+            projects.append({
+                "name": proj_name.strip()[:40],
+                "role": role_match.group(0) if role_match else "开发工程师",
+                "description": desc[:150].strip() or proj_name.strip(),
+                "duration": "",
+            })
+    if not projects:
+        proj_matches = re.findall(
+            r'(?:项目|课题)[：:\s]*([^\n]{4,50})',
+            text
+        )
+        for pm in proj_matches[:3]:
+            projects.append({
+                "name": pm.strip(),
+                "role": "开发工程师",
+                "description": pm.strip(),
+                "duration": "",
+            })
     result["project_exp"] = projects
 
     target = ""

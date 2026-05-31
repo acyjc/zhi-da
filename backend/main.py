@@ -1,4 +1,9 @@
 # 职达 API 主入口——FastAPI 应用、CORS 中间件、路由注册、数据库初始化
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / ".env")
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
