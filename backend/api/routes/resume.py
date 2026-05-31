@@ -8,31 +8,76 @@ from config.settings import MAX_UPLOAD_SIZE_MB, ALLOWED_UPLOAD_TYPES
 import json
 import re
 import os
+import logging
 
 router = APIRouter(prefix="/api/resume", tags=["resume"])
+logger = logging.getLogger("zhi-da.resume")
 
-SYSTEM_PROMPT = """你是一个专业的简历解析助手。从简历文本中提取以下信息，以严格JSON格式返回：
+RESUME_OUTPUT_SCHEMA = """{
+  "name": "<姓名，2-4字中文或英文全名>",
+  "grade": "<大一|大二|大三|大四|研一|研二|研三|空字符串>",
+  "major": "<专业名称>",
+  "target_job": "<推断的岗位方向，如：后端开发工程师 / 前端开发工程师 / AI算法工程师 / 数据分析师>",
+  "tech_skills": { "<技能名>": <0-100分值> },
+  "soft_skills": { "<软技能名>": <0-100分值> },
+  "domain_knowledge": { "<领域名>": <0-100分值> },
+  "project_exp": [
+    {
+      "name": "<项目名称>",
+      "role": "<担任角色，如：后端开发 / 前端开发 / 项目负责人>",
+      "description": "<1-2句话描述>",
+      "duration": "<时间段，如：2023.09-2024.01>"
+    }
+  ],
+  "summary": "<一句话能力总结>"
+}"""
 
-{
-  "name": "姓名",
-  "grade": "年级(如大三/研二，无法判断为空)",
-  "major": "专业",
-  "target_job": "目标岗位(推断最匹配的岗位方向)",
-  "tech_skills": {"技能名": 分值(0-100)},
-  "soft_skills": {"技能名": 分值(0-100)},
-  "domain_knowledge": {"领域名": 分值(0-100)},
-  "project_exp": [{"name": "项目名", "role": "角色", "description": "简述", "duration": "时长"}],
-  "summary": "一句话能力总结"
-}
+SYSTEM_PROMPT = f"""你是一个专业的简历解析助手。请严格按照以下JSON Schema解析简历：
 
-规则：
-1. 姓名优先从"姓名：xxx"、"名字：xxx"或首行"xxx的简历"中等位置提取；如果是英文名如"Tom Zhang"，直接返回英文名；只提取2-4个中文字或英文单词
-2. 分值基于简历描述的熟练程度推断：精通90+、熟练75-85、了解60-70、接触40-55
-3. 软技能从项目角色、团队协作描述中推断
-4. 领域知识从技术栈、项目方向中推断
-5. 项目经历必须从"项目经验"、"项目经历"、"实习经历"等段落中提取，每个项目包含name/role/description/duration
-6. 所有字段都必须存在，可以为空字符串/空数组/空对象
-7. 只返回JSON，不要任何额外文字"""
+{ RESUME_OUTPUT_SCHEMA }
+
+## 解析规则
+
+### 姓名
+- 优先从"姓名："、"名字："标签提取
+- 否则取首行开头2-4个中文字，或首行英文名如"Tom Zhang"
+- 如完全无法判断，返回空字符串
+
+### 年级
+- 匹配"大一/大二/大三/大四/研一/研二/研三"或入学年份（2019→推算大四）
+- 无法判断返回空字符串
+
+### 专业
+- 匹配专业关键词："计算机科学/软件工程/数据科学/人工智能/电子信息/通信工程/自动化/数学/统计"等
+- 无法判断提取简历中最可能的专业名
+
+### 技术技能评分
+- **精通**（简历写"精通/深入理解/源码级/架构设计"）→ 90-100
+- **熟练**（简历写"熟练/独立开发/负责过"）→ 75-85
+- **掌握**（简历写"掌握/熟悉/使用过"）→ 60-70
+- **了解**（简历只提了名字/课程学过）→ 40-55
+- 每个技能评分必须有依据，不要所有技能同一分值
+
+### 软技能
+- 从项目描述中推断：参与团队项目的→"团队协作"、做过汇报答辩的→"沟通表达"、负责多任务的→"项目管理"
+- 至少返回1-3个，不要返回空对象
+
+### 领域知识
+- 根据简历中的技术栈推断："Spring/MyBatis"→"后端开发"、"Vue/React"→"前端开发"、"PyTorch/TensorFlow"→"深度学习"
+
+### 项目经历
+- 从"项目经验/实习经历/项目实践"等段落提取
+- 每个项目必须包含name、role、description三个字段
+- 如简历中无明确项目段落，`project_exp` 返回空数组 `[]`
+
+### 目标岗位
+- 根据技能聚类推断最匹配的岗位方向
+
+## 强制要求
+1. **只返回上述JSON Schema格式的纯JSON**，不要任何解释文字
+2. 不要包裹在 ```json ``` 代码块中
+3. 所有字段都必须存在，可为空字符串/空对象/空数组
+4. tech_skills分值必须有区分度，不要全是相同分值"""
 
 
 class ResumeParseRequest(BaseModel):
@@ -51,65 +96,123 @@ class ResumeParseResponse(BaseModel):
     summary: str = ""
 
 
-# 从上传文件中提取纯文本，支持 PDF/DOCX/TXT
-async def extract_text_from_file(file: UploadFile) -> str:
-    content = await file.read()
-    filename = file.filename or ""
-    ext = os.path.splitext(filename)[1].lower()
+def _extract_json(text: str) -> dict:
+    text = text.strip()
+    code_match = re.search(r'```(?:json)?\s*\n?([\s\S]*?)\n?```', text)
+    if code_match:
+        text = code_match.group(1).strip()
 
-    if ext == ".pdf":
-        from PyPDF2 import PdfReader
-        import io
-        reader = PdfReader(io.BytesIO(content))
-        texts = []
-        for page in reader.pages:
-            text = page.extract_text()
-            if text:
-                texts.append(text)
-        return "\n".join(texts)
-    elif ext == ".docx":
-        from docx import Document
-        import io
-        doc = Document(io.BytesIO(content))
-        return "\n".join([para.text for para in doc.paragraphs if para.text.strip()])
-    else:
-        return content.decode("utf-8", errors="ignore")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    match = re.search(r'\{[\s\S]*\}', text)
+    if match:
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            pass
+
+    raise ValueError(f"无法从LLM返回中提取JSON，原始返回前200字：{text[:200]}")
 
 
-# 调用 LLM 解析简历文本，返回结构化数据
+def _validate_and_clean(data: dict) -> dict:
+    result: dict = {}
+
+    for field in ["name", "grade", "major", "target_job", "summary"]:
+        val = data.get(field, "")
+        result[field] = str(val).strip() if isinstance(val, str) else ""
+
+    for field in ["tech_skills", "soft_skills", "domain_knowledge"]:
+        val = data.get(field, {})
+        if not isinstance(val, dict):
+            continue
+        cleaned = {}
+        for k, v in val.items():
+            if isinstance(v, (int, float)):
+                cleaned[str(k)] = max(0, min(100, int(v)))
+            elif isinstance(v, str) and v.isdigit():
+                cleaned[str(k)] = max(0, min(100, int(v)))
+        result[field] = cleaned
+
+    projects = data.get("project_exp", [])
+    if not isinstance(projects, list):
+        projects = []
+    cleaned_projects = []
+    for p in projects:
+        if not isinstance(p, dict):
+            continue
+        name = str(p.get("name", "")).strip()
+        if not name:
+            continue
+        cleaned_projects.append({
+            "name": name,
+            "role": str(p.get("role", "")).strip() or "开发工程师",
+            "description": str(p.get("description", "")).strip() or name,
+            "duration": str(p.get("duration", "")).strip(),
+        })
+    result["project_exp"] = cleaned_projects
+
+    return result
+
+
 async def parse_resume_with_llm(text: str) -> ResumeParseResponse:
     llm = get_llm_client()
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": f"请解析以下简历：\n\n{text[:6000]}"},
     ]
+    logger.info("开始LLM简历解析，文本长度=%d", len(text))
     response = await llm.complete(messages)
-    try:
-        data = json.loads(response.content)
-    except json.JSONDecodeError:
-        match = re.search(r'\{[\s\S]*\}', response.content)
-        data = json.loads(match.group(0)) if match else {}
+    logger.info("LLM原始返回(前200字): %s", response.content[:200])
 
+    data = _extract_json(response.content)
+    logger.info("JSON提取成功，字段: %s", list(data.keys()))
+
+    cleaned = _validate_and_clean(data)
+    logger.info("校验完成: name=%s skills=%d projects=%d job=%s",
+                cleaned["name"], len(cleaned["tech_skills"]),
+                len(cleaned["project_exp"]), cleaned["target_job"])
+
+    return ResumeParseResponse(
+        name=cleaned["name"],
+        grade=cleaned["grade"],
+        major=cleaned["major"],
+        target_job=cleaned["target_job"],
+        tech_skills=cleaned["tech_skills"],
+        soft_skills=cleaned["soft_skills"],
+        domain_knowledge=cleaned["domain_knowledge"],
+        project_exp=cleaned["project_exp"],
+        summary=cleaned["summary"],
+    )
+
+
+def _parse_resume_fallback(text: str) -> ResumeParseResponse:
+    from core.harness.llm import _mock_parse_resume
+    data = _mock_parse_resume(text)
     return ResumeParseResponse(
         name=data.get("name", ""),
         grade=data.get("grade", ""),
         major=data.get("major", ""),
         target_job=data.get("target_job", ""),
-        tech_skills=data.get("tech_skills", {}) or {},
-        soft_skills=data.get("soft_skills", {}) or {},
-        domain_knowledge=data.get("domain_knowledge", {}) or {},
-        project_exp=data.get("project_exp", []) or [],
+        tech_skills=data.get("tech_skills", {}),
+        soft_skills=data.get("soft_skills", {}),
+        domain_knowledge=data.get("domain_knowledge", {}),
+        project_exp=data.get("project_exp", []),
         summary=data.get("summary", ""),
     )
 
 
-# 提交简历文本，返回解析后的结构化数据
 @router.post("/parse", response_model=ResumeParseResponse)
 async def parse_resume(req: ResumeParseRequest, db: AsyncSession = Depends(get_db)):
-    return await parse_resume_with_llm(req.resume_text)
+    try:
+        return await parse_resume_with_llm(req.resume_text)
+    except Exception as e:
+        logger.warning("LLM解析失败，fallback到规则匹配: %s", e)
+        return _parse_resume_fallback(req.resume_text)
 
 
-# 上传简历文件(PDF/DOCX/TXT)，提取文本后调用 LLM 解析
 @router.post("/upload", response_model=ResumeParseResponse)
 async def upload_resume(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
     filename = file.filename or ""
@@ -123,4 +226,8 @@ async def upload_resume(file: UploadFile = File(...), db: AsyncSession = Depends
     if not text.strip():
         return ResumeParseResponse()
 
-    return await parse_resume_with_llm(text)
+    try:
+        return await parse_resume_with_llm(text)
+    except Exception as e:
+        logger.warning("文件LLM解析失败，fallback到规则匹配: %s", e)
+        return _parse_resume_fallback(text)
