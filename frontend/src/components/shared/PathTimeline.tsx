@@ -1,0 +1,111 @@
+// 横向阶段时间线——已完成(绿)/当前(蓝)/未开始(灰)三种节点状态
+import type { FC } from 'react'
+import type { GrowthPhase } from '../../types'
+
+interface Props {
+  phases: GrowthPhase[]
+  currentPhase?: number
+}
+
+const PathTimeline: FC<Props> = ({ phases, currentPhase = -1 }) => {
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '8px 0 24px', position: 'relative' }}>
+      {phases.map((phase, i) => {
+        const isCompleted = i < currentPhase
+        const isCurrent = i === currentPhase
+        const isFuture = i > currentPhase
+
+        const nodeStyle: React.CSSProperties = {
+          width: 24,
+          height: 24,
+          borderRadius: '50%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+          border: isCompleted
+            ? '2px solid var(--accent-green)'
+            : isCurrent
+              ? '2px solid var(--accent-blue)'
+              : '2px solid var(--text-tertiary)',
+          background: isCompleted
+            ? 'var(--accent-green)'
+            : isCurrent
+              ? 'rgba(91,156,245,0.2)'
+              : 'transparent',
+          color: isCompleted ? '#fafaf8' : isCurrent ? 'var(--accent-blue)' : 'var(--text-tertiary)',
+          fontWeight: 700,
+          fontSize: 11,
+          fontFamily: 'var(--font-mono)',
+          transition: 'all 0.3s ease',
+          animation: isCurrent ? 'pulseGlow 1.5s ease-in-out infinite' : 'none',
+        }
+
+        return (
+          <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, position: 'relative' }}>
+            <style>{`@keyframes pulseGlow{0%,100%{box-shadow:0 0 0 0 rgba(91,156,245,0.4)}50%{box-shadow:0 0 0 8px rgba(91,156,245,0)}}`}</style>
+            <div style={{
+              display: 'flex', alignItems: 'center', width: '100%',
+              justifyContent: i === 0 ? 'flex-start' : i === phases.length - 1 ? 'flex-end' : 'center',
+            }}>
+              {i > 0 && (
+                <div style={{
+                  position: 'absolute',
+                  left: 0,
+                  right: '50%',
+                  top: 11,
+                  height: 2,
+                  background: isCompleted || (isCurrent && i <= currentPhase)
+                    ? 'linear-gradient(to right, var(--accent-green), var(--accent-blue))'
+                    : 'var(--border-light)',
+                  zIndex: 0,
+                }} />
+              )}
+              {i < phases.length - 1 && (
+                <div style={{
+                  position: 'absolute',
+                  left: '50%',
+                  right: 0,
+                  top: 11,
+                  height: 2,
+                  background: isCompleted
+                    ? 'var(--accent-green)'
+                    : isCurrent
+                      ? 'linear-gradient(to right, var(--accent-blue), var(--border-light))'
+                      : 'var(--border-light)',
+                  zIndex: 0,
+                }} />
+              )}
+              <div style={{ ...nodeStyle, position: 'relative', zIndex: 1 }}>
+                {isCompleted ? '✓' : isCurrent ? '' : i + 1}
+                {isCurrent && <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent-blue)' }} />}
+              </div>
+            </div>
+            <span style={{
+              marginTop: 8,
+              fontSize: 11,
+              color: isFuture ? 'var(--text-tertiary)' : 'var(--text-primary)',
+              textAlign: 'center',
+              fontFamily: 'var(--font-display)',
+              fontWeight: isCurrent ? 600 : 400,
+              maxWidth: 120,
+              lineHeight: 1.3,
+            }}>
+              {phase.goal}
+            </span>
+            <span style={{
+              fontSize: 10,
+              color: 'var(--text-tertiary)',
+              fontFamily: 'var(--font-mono)',
+              marginTop: 2,
+            }}>
+              {phase.weeks}周
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+export default PathTimeline
