@@ -27,7 +27,7 @@ const ProfileTab: FC<Props> = ({ profile, changes }) => {
 
   const radarData = dims.map(dim => ({
     name: dimLabels[dim],
-    value: profile[dim]?.weight ?? 0,
+    value: ((profile[dim]?.weight ?? 0) * 100),
   }))
 
   const allSkills = dims.flatMap(dim => 
@@ -85,7 +85,7 @@ const ProfileTab: FC<Props> = ({ profile, changes }) => {
                     color: dimColors[dim],
                     lineHeight: 1,
                   }}>
-                    {score}
+                    {(score * 100).toFixed(0)}%
                   </span>
                   {change !== undefined && change !== 0 && (
                     <span style={{
@@ -94,7 +94,7 @@ const ProfileTab: FC<Props> = ({ profile, changes }) => {
                       fontWeight: 600,
                       color: change > 0 ? 'var(--accent-green)' : 'var(--accent-rose)',
                     }}>
-                      {change > 0 ? '+' : ''}{change}
+                      {change > 0 ? '+' : ''}{(change * 100).toFixed(0)}%
                     </span>
                   )}
                 </div>

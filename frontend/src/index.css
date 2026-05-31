@@ -9,7 +9,9 @@
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.04);
   --shadow-md: 0 4px 16px rgba(0,0,0,0.06);
   --shadow-lg: 0 8px 32px rgba(0,0,0,0.08);
-  --radius-sm: 8px;   --radius-md: 12px;   --radius-lg: 18px;
+  --radius-sm: 6px;   --radius-md: 10px;   --radius-lg: 16px;
+  --text-xs: 11px;   --text-sm: 13px;   --text-base: 15px;
+  --text-lg: 18px;   --text-xl: 24px;   --text-number: 32px;
   --font-display: 'Rajdhani', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
   --font-body: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
@@ -40,7 +42,7 @@ body {
   border: none; border-radius: var(--radius-md); cursor: pointer;
   font-weight: 600; letter-spacing: 0.02em;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  padding: 10px 22px; font-size: 14px; font-family: var(--font-body);
+  padding: 10px 22px; font-size: var(--text-sm); font-family: var(--font-body);
 }
 .btn:hover { transform: translateY(-1px); }
 .btn:active { transform: translateY(0); }
@@ -54,7 +56,7 @@ body {
 .btn-outline { background: transparent; border: 1px solid var(--border-light); color: var(--text-secondary); }
 .btn-outline:hover { border-color: var(--accent-teal); color: var(--accent-teal); }
 
-.btn-lg { padding: 14px 32px; font-size: 16px; border-radius: var(--radius-lg); }
+.btn-lg { padding: 14px 32px; font-size: var(--text-base); border-radius: var(--radius-lg); }
 
 .card {
   background: var(--bg-card); border: 1px solid var(--border-card);
@@ -63,12 +65,12 @@ body {
 
 .form-group { display: flex; flex-direction: column; gap: 6px; }
 .form-group label {
-  font-size: 13px; color: var(--text-secondary); font-weight: 500;
+  font-size: var(--text-sm); color: var(--text-secondary); font-weight: 500;
   font-family: var(--font-body); letter-spacing: 0.01em;
 }
 .form-group input, .form-group select, .form-group textarea {
   padding: 11px 15px; border-radius: var(--radius-sm); border: 1px solid var(--border-light);
-  background: var(--bg-card); color: var(--text-primary); font-size: 15px;
+  background: var(--bg-card); color: var(--text-primary); font-size: var(--text-base);
   font-family: var(--font-body);
   transition: border-color 0.15s, box-shadow 0.15s;
   -webkit-appearance: none; appearance: none;
@@ -85,7 +87,7 @@ body {
 .form-group input::placeholder, .form-group textarea::placeholder { color: var(--text-tertiary); }
 
 .section-title {
-  font-size: 16px; font-weight: 600; color: var(--text-primary);
+  font-size: var(--text-base); font-weight: 600; color: var(--text-primary);
   letter-spacing: 0.02em; margin-bottom: 20px;
 }
 
@@ -94,10 +96,10 @@ body {
   padding: 60px 24px; text-align: center;
 }
 .empty-state svg { margin-bottom: 16px; opacity: 0.4; }
-.empty-state h3 { font-size: 16px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
-.empty-state p { font-size: 13px; color: var(--text-tertiary); }
+.empty-state h3 { font-size: var(--text-base); font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+.empty-state p { font-size: var(--text-sm); color: var(--text-tertiary); }
 
 @media (max-width: 768px) {
   :root { --radius-lg: 12px; }
-  .btn-lg { padding: 12px 24px; font-size: 15px; }
+  .btn-lg { padding: 12px 24px; font-size: var(--text-sm); }
 }
