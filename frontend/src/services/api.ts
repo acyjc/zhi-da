@@ -55,8 +55,17 @@ async function readSSE(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+  if (!response.ok) {
+    let detail = `${response.status} ${response.statusText}`
+    try {
+      const errData = await response.json()
+      if (errData.detail) detail = errData.detail
+      else if (errData.error) detail = errData.error
+    } catch {}
+    throw new Error(detail)
+  }
   const reader = response.body?.getReader()
-  if (!reader) throw new Error('No response body')
+  if (!reader) throw new Error('服务器未返回数据流')
   const decoder = new TextDecoder()
   let buffer = ''
   let result: any = null
@@ -72,14 +81,18 @@ async function readSSE(
           const data = JSON.parse(line.slice(6))
           if (data.stage === 'result') {
             result = data
+          } else if (data.error) {
+            throw new Error(data.error)
           } else if (onProgress) {
             onProgress(data.stage, data.progress, data.message)
           }
-        } catch {
+        } catch (e: any) {
+          if (e.message && !e.message.startsWith('Unexpected')) throw e
         }
       }
     }
   }
+  if (!result) throw new Error('诊断未返回结果，请确认后端服务是否正常运行')
   return result
 }
 

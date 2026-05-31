@@ -70,7 +70,8 @@ export default function Dashboard() {
 
   const [activeTab, setActiveTab] = useState<TabKey>('profile')
   const [diagnosing, setDiagnosing] = useState(false)
-  const [diagnosisError, setDiagnosisError] = useState(false)
+  const [diagnosisError, setDiagnosisError] = useState('')
+  const [diagnosisSuccess, setDiagnosisSuccess] = useState(false)
   const [sseSteps, setSseSteps] = useState<{ label: string; status: 'wait' | 'process' | 'finish' | 'error' }[]>([])
   const [showReEval, setShowReEval] = useState(false)
   const [reEvalMsg, setReEvalMsg] = useState('')
@@ -87,7 +88,7 @@ export default function Dashboard() {
   const runDiagnosis = useCallback(async () => {
     if (!student) return
     setDiagnosing(true)
-    setDiagnosisError(false)
+    setDiagnosisError('')
     setIsLoading(true)
     setSseSteps(staticSseSteps.map((s, i) => ({ ...s, status: i === 0 ? 'process' : 'wait' })))
 
@@ -128,9 +129,12 @@ export default function Dashboard() {
 
       setDiagnosisResult(diagResult)
       setActiveTab('profile')
-    } catch (err) {
+      setDiagnosisSuccess(true)
+      setTimeout(() => setDiagnosisSuccess(false), 4000)
+    } catch (err: any) {
+      const msg = err?.message || '诊断失败，请检查网络连接后重试'
       setSseSteps(prev => prev.map(s => ({ ...s, status: s.status === 'process' ? 'error' : s.status })))
-      setDiagnosisError(true)
+      setDiagnosisError(msg)
     } finally {
       setIsLoading(false)
       setDiagnosing(false)
@@ -184,8 +188,12 @@ export default function Dashboard() {
       }
       setDiagnosisResult(diagResult)
       setActiveTab('profile')
-    } catch {
+      setDiagnosisSuccess(true)
+      setTimeout(() => setDiagnosisSuccess(false), 4000)
+    } catch (err: any) {
+      const msg = err?.message || '再诊断失败，请稍后重试'
       setSseSteps(prev => prev.map(s => ({ ...s, status: s.status === 'process' ? 'error' : s.status })))
+      setDiagnosisError(msg)
     } finally {
       setIsLoading(false)
       setDiagnosing(false)
@@ -204,7 +212,7 @@ export default function Dashboard() {
     if (student && diagnosisResult) {
       getDiagnosisHistory(student.id)
         .then((data: DiagnosisResult[]) => setDiagnosisHistory(data))
-        .catch(() => {})
+        .catch(() => { console.warn('加载诊断历史失败') })
     }
   }, [student, diagnosisResult])
 
@@ -302,11 +310,11 @@ export default function Dashboard() {
             <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'var(--font-display)', marginBottom: 8 }}>
               诊断遇到问题
             </div>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 24 }}>
-              请检查网络连接后重试
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8, maxWidth: 400, wordBreak: 'break-word' }}>
+              {diagnosisError}
             </div>
             <button
-              onClick={() => { setDiagnosisError(false); runDiagnosis() }}
+              onClick={() => { setDiagnosisError(''); runDiagnosis() }}
               style={{
                 padding: '10px 32px', borderRadius: 8, border: 'none',
                 background: 'var(--accent-blue)', color: '#fff',
@@ -523,6 +531,17 @@ export default function Dashboard() {
 
       {diagnosisResult && (
         <ExportToolbar studentId={student.id} diagnosisId={diagnosisResult.id} version={diagnosisResult.version} />
+      )}
+
+      {diagnosisSuccess && (
+        <div style={{
+          position: 'fixed', bottom: 60, left: '50%', transform: 'translateX(-50%)', zIndex: 200,
+          padding: '10px 24px', borderRadius: 10, background: 'var(--accent-green)', color: '#fff',
+          fontSize: 14, fontWeight: 600, fontFamily: 'var(--font-display)',
+          boxShadow: '0 4px 16px rgba(107,168,122,0.4)', animation: 'slideUp 0.3s ease-out',
+        }}>
+          ✓ 诊断完成，结果已更新
+        </div>
       )}
 
       <ReEvaluatePrompt

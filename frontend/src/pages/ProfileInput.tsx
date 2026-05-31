@@ -70,7 +70,9 @@ export default function ProfileInput() {
   const newSkillLevelRef = useRef<HTMLSelectElement>(null)
 
   useEffect(() => {
-    listJobs().then(jobs => setJobOptions(jobs.map((j: any) => j.title))).catch(() => {})
+    listJobs()
+      .then(jobs => setJobOptions(jobs.map((j: any) => j.title)))
+      .catch(() => { console.warn('加载岗位列表失败，使用空列表') })
   }, [])
 
   useEffect(() => {
@@ -128,8 +130,9 @@ export default function ProfileInput() {
           : { ...DEFAULT_SOFT_SKILLS },
       })
       setStep('review')
-    } catch {
-      setParseError('AI解析失败，请手动填写下方信息')
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || e?.response?.data?.error || e?.message || 'AI解析失败'
+      setParseError(`${msg}，请手动填写下方信息`)
       setParsed(p => ({ ...p, soft_skills: { ...DEFAULT_SOFT_SKILLS } }))
       setStep('review')
     } finally {
@@ -187,8 +190,9 @@ export default function ProfileInput() {
       setJobs(jobs)
       setDiagnosisResult(null)
       navigate('/dashboard')
-    } catch {
-      setError('提交失败，请检查网络连接后重试')
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || e?.message || '提交失败，请检查网络连接后重试'
+      setError(msg)
       setStep('review')
     }
   }
