@@ -1,5 +1,5 @@
 # 简历解析路由——文本解析 + 文件上传解析，调用 LLM 提取结构化信息
-from fastapi import APIRouter, Depends, UploadFile, File
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from db.database import get_db
@@ -127,7 +127,7 @@ def _validate_and_clean(data: dict) -> dict:
     for field in ["tech_skills", "soft_skills", "domain_knowledge"]:
         val = data.get(field, {})
         if not isinstance(val, dict):
-            continue
+            val = {}
         cleaned = {}
         for k, v in val.items():
             if isinstance(v, (int, float)):
@@ -188,24 +188,6 @@ async def parse_resume_with_llm(text: str) -> ResumeParseResponse:
     )
 
 
-def _parse_resume_fallback(text: str) -> ResumeParseResponse:
-    from core.harness.llm import _mock_parse_resume
-    data = _mock_parse_resume(text)
-    return ResumeParseResponse(
-        name=data.get("name", ""),
-        grade=data.get("grade", ""),
-        major=data.get("major", ""),
-        target_job=data.get("target_job", ""),
-        tech_skills=data.get("tech_skills", {}),
-        soft_skills=data.get("soft_skills", {}),
-        domain_knowledge=data.get("domain_knowledge", {}),
-        project_exp=data.get("project_exp", []),
-        summary=data.get("summary", ""),
-    )
-
-
-# 从上传文件中提取纯文本，支持 PDF/DOCX/TXT
-# PDF 优先用 pdfminer.six（布局容忍度高），PyPDF2 作为兜底
 def _extract_pdf_text(content: bytes) -> str:
     try:
         from pdfminer.high_level import extract_text
@@ -246,7 +228,7 @@ async def extract_text_from_file(file: UploadFile) -> str:
         text = _extract_pdf_text(content)
         logger.info("PDF提取: %d 字符", len(text))
         if not text.strip():
-            logger.warning("PDF文本为空，可能为扫描版PDF，请上传可复制文字的PDF或粘贴文本")
+            logger.warning("PDF文本为空，可能为扫描版PDF")
         return text
     elif ext == ".docx":
         return _extract_docx_text(content)
@@ -256,11 +238,7 @@ async def extract_text_from_file(file: UploadFile) -> str:
 
 @router.post("/parse", response_model=ResumeParseResponse)
 async def parse_resume(req: ResumeParseRequest, db: AsyncSession = Depends(get_db)):
-    try:
-        return await parse_resume_with_llm(req.resume_text)
-    except Exception as e:
-        logger.warning("LLM解析失败，fallback到规则匹配: %s", e)
-        return _parse_resume_fallback(req.resume_text)
+    return await parse_resume_with_llm(req.resume_text)
 
 
 @router.post("/upload", response_model=ResumeParseResponse)
@@ -268,16 +246,12 @@ async def upload_resume(file: UploadFile = File(...), db: AsyncSession = Depends
     filename = file.filename or ""
     ext = os.path.splitext(filename)[1].lower()
     if ext not in ALLOWED_UPLOAD_TYPES:
-        return ResumeParseResponse()
+        raise HTTPException(400, f"不支持的文件类型：{ext}，请上传 PDF/DOCX/TXT")
     if file.size and file.size > MAX_UPLOAD_SIZE_MB * 1024 * 1024:
-        return ResumeParseResponse()
+        raise HTTPException(400, f"文件过大（>{MAX_UPLOAD_SIZE_MB}MB）")
 
     text = await extract_text_from_file(file)
     if not text.strip():
-        return ResumeParseResponse()
+        raise HTTPException(400, "未能从文件中提取到文字，可能为扫描版PDF，请粘贴文本内容")
 
-    try:
-        return await parse_resume_with_llm(text)
-    except Exception as e:
-        logger.warning("文件LLM解析失败，fallback到规则匹配: %s", e)
-        return _parse_resume_fallback(text)
+    return await parse_resume_with_llm(text)

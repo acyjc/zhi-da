@@ -135,10 +135,9 @@ export default function ProfileInput() {
       })
       setStep('parsing-result')
     } catch (e: any) {
-      const msg = e?.response?.data?.detail || e?.response?.data?.error || e?.message || 'AI解析失败'
-      setParseError(`${msg}，请手动填写下方信息`)
-      setParsed(p => ({ ...p, soft_skills: { ...DEFAULT_SOFT_SKILLS } }))
-      setStep('review')
+      const msg = e?.response?.data?.detail || e?.message || 'AI解析失败，请检查后端服务是否启动'
+      setParseError(msg)
+      setStep('upload')
     }
   }
 
