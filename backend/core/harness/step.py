@@ -11,6 +11,7 @@ class PipelineState:
     results: dict = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
+    extra: dict = field(default_factory=dict)
 
     def get(self, key: str, default: Any = None) -> Any:
         return self.results.get(key, default)

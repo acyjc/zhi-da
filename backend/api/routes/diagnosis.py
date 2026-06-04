@@ -46,7 +46,8 @@ async def _get_student_dict(db: AsyncSession, student_id: str) -> dict:
 async def _save_diagnosis(db: AsyncSession, student_id: str, state: PipelineState,
                           diagnosis_type: str = "initial", trigger_event: str = "",
                           previous_diag_id: str = "") -> DiagnosisResponse:
-    match_result = state.get("match_result", {})
+    match_result = dict(state.get("match_result", {}))
+    match_result.setdefault("previous_dimension_scores", state.extra.get("previous_dimension_scores", {}))
     result = await db.execute(
         select(func.max(DiagORM.version)).where(DiagORM.student_id == student_id))
     max_ver = result.scalar() or 0
