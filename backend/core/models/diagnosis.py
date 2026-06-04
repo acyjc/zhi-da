@@ -1,6 +1,7 @@
 # Pydantic 模型——诊断请求/再评估请求/诊断响应
-from pydantic import BaseModel
-from typing import Optional
+from datetime import datetime
+from pydantic import BaseModel, field_validator
+from typing import Optional, Any
 
 
 class DiagnoseRequest(BaseModel):
@@ -29,5 +30,13 @@ class DiagnosisResponse(BaseModel):
     trigger_event: str
     created_at: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def coerce_created_at(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, datetime):
+            return v.isoformat()
+        return str(v)

@@ -1,6 +1,7 @@
 # Pydantic 模型——学生创建/更新/响应/技能更新请求
-from pydantic import BaseModel, Field
-from typing import Optional
+from datetime import datetime
+from pydantic import BaseModel, Field, field_validator
+from typing import Optional, Any
 
 
 class ProjectExperience(BaseModel):
@@ -47,8 +48,16 @@ class StudentResponse(BaseModel):
     resume_text: str
     created_at: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def coerce_created_at(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, datetime):
+            return v.isoformat()
+        return str(v)
 
 
 class SkillUpdateRequest(BaseModel):
