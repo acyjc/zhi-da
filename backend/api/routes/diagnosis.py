@@ -1,4 +1,5 @@
 # 诊断分析路由——初诊/再诊(SSE流式)/历史查询
+import asyncio
 import json
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
@@ -68,15 +69,29 @@ async def _save_diagnosis(db: AsyncSession, student_id: str, state: PipelineStat
     db.add(diag)
     await db.commit()
     await db.refresh(diag)
-    return DiagnosisResponse(
-        id=diag.id, student_id=diag.student_id, version=diag.version,
-        diagnosis_type=diag.diagnosis_type, match_score=diag.match_score,
-        dimension_scores=diag.dimension_scores, dimension_changes=diag.dimension_changes,
-        gap_details=diag.gap_details, top5_jobs=diag.top5_jobs,
-        growth_path=diag.growth_path, career_advice=diag.career_advice,
-        ai_reasoning=diag.ai_reasoning, trigger_event=diag.trigger_event,
-        created_at=diag.created_at.isoformat() if diag.created_at else None,
-    )
+    try:
+        return DiagnosisResponse(
+            id=diag.id, student_id=diag.student_id, version=diag.version,
+            diagnosis_type=diag.diagnosis_type, match_score=diag.match_score,
+            dimension_scores=diag.dimension_scores or {},
+            dimension_changes=diag.dimension_changes or {},
+            gap_details=diag.gap_details or [],
+            top5_jobs=diag.top5_jobs or [],
+            growth_path=diag.growth_path or {},
+            career_advice=diag.career_advice or "",
+            ai_reasoning=diag.ai_reasoning or {},
+            trigger_event=diag.trigger_event or "",
+            created_at=diag.created_at.isoformat() if diag.created_at else None,
+        )
+    except Exception:
+        return DiagnosisResponse(
+            id=diag.id, student_id=diag.student_id, version=diag.version,
+            diagnosis_type=diag.diagnosis_type, match_score=diag.match_score or 0,
+            dimension_scores={}, dimension_changes={}, gap_details=[],
+            top5_jobs=[], growth_path={}, career_advice="",
+            ai_reasoning={}, trigger_event=trigger_event or "",
+            created_at=diag.created_at.isoformat() if diag.created_at else None,
+        )
 
 
 async def _run_pipeline_sse(student_id: str, db: AsyncSession,
@@ -94,21 +109,40 @@ async def _run_pipeline_sse(student_id: str, db: AsyncSession,
     state = PipelineState(input=student_dict, extra={
         "previous_dimension_scores": prev_diag.dimension_scores if prev_diag else {},
     })
+    async def _fallback_handler(step_name: str, state: PipelineState, error: Exception):
+        import logging
+        logging.getLogger(__name__).warning(f"Step {step_name} failed: {error}, continuing pipeline")
+
     runner = PipelineRunner(
         steps=[ProfileStep(), MatchStep(), GapStep(), PathStep(), AdviceStep()],
+        fallback_handler=_fallback_handler,
     )
 
-    async def event_generator():
+    queue = asyncio.Queue()
 
-        async def on_progress(step_name, progress, message):
+    async def on_progress(step_name, progress, message):
+        await queue.put(("progress", step_name, progress, message))
+
+    async def run_pipeline():
+        state_out = await runner.run(state, on_progress=on_progress)
+        # 在后台任务中保存诊断，确保即使客户端断开也能持久化
+        diag = await _save_diagnosis(db, student_id, state_out, diagnosis_type, trigger_event)
+        await queue.put(("done", diag))
+
+    asyncio.create_task(run_pipeline())
+
+    async def event_generator():
+        yield f"data: {json.dumps({'stage': 'start', 'progress': 0, 'message': '开始诊断...'}, ensure_ascii=False)}\n\n"
+
+        diag = None
+        while True:
+            msg = await queue.get()
+            if msg[0] == "done":
+                diag = msg[1]
+                break
+            _, step_name, progress, message = msg
             yield f"data: {json.dumps({'stage': step_name, 'progress': round(progress, 2), 'message': message}, ensure_ascii=False)}\n\n"
 
-        async for event in on_progress("start", 0, "开始诊断..."):
-            yield event
-
-        state_out = await runner.run(state, on_progress=on_progress)
-
-        diag = await _save_diagnosis(db, student_id, state_out, diagnosis_type, trigger_event)
         result_data = diag.model_dump()
         result_data["stage"] = "result"
         yield f"data: {json.dumps(result_data, ensure_ascii=False, default=str)}\n\n"
@@ -134,15 +168,25 @@ async def diagnosis_history(student_id: str, db: AsyncSession = Depends(get_db))
     result = await db.execute(
         select(DiagORM).where(DiagORM.student_id == student_id).order_by(DiagORM.created_at.desc()))
     records = result.scalars().all()
-    return [DiagnosisResponse(
-        id=r.id, student_id=r.student_id, version=r.version,
-        diagnosis_type=r.diagnosis_type, match_score=r.match_score,
-        dimension_scores=r.dimension_scores, dimension_changes=r.dimension_changes,
-        gap_details=r.gap_details, top5_jobs=r.top5_jobs,
-        growth_path=r.growth_path, career_advice=r.career_advice,
-        ai_reasoning=r.ai_reasoning, trigger_event=r.trigger_event,
-        created_at=r.created_at.isoformat() if r.created_at else None,
-    ).model_dump() for r in records]
+    items = []
+    for r in records:
+        try:
+            items.append(DiagnosisResponse(
+                id=r.id, student_id=r.student_id, version=r.version,
+                diagnosis_type=r.diagnosis_type, match_score=r.match_score or 0,
+                dimension_scores=r.dimension_scores or {},
+                dimension_changes=r.dimension_changes or {},
+                gap_details=r.gap_details or [],
+                top5_jobs=r.top5_jobs or [],
+                growth_path=r.growth_path or {},
+                career_advice=r.career_advice or "",
+                ai_reasoning=r.ai_reasoning or {},
+                trigger_event=r.trigger_event or "",
+                created_at=r.created_at.isoformat() if r.created_at else None,
+            ).model_dump())
+        except Exception:
+            items.append({"id": r.id, "error": "data corrupted", "version": r.version})
+    return items
 
 
 # 获取单条诊断记录详情
@@ -152,12 +196,19 @@ async def get_diagnosis(diagnosis_id: str, db: AsyncSession = Depends(get_db)):
     r = result.scalar_one_or_none()
     if not r:
         return {"error": "Not found"}
-    return DiagnosisResponse(
-        id=r.id, student_id=r.student_id, version=r.version,
-        diagnosis_type=r.diagnosis_type, match_score=r.match_score,
-        dimension_scores=r.dimension_scores, dimension_changes=r.dimension_changes,
-        gap_details=r.gap_details, top5_jobs=r.top5_jobs,
-        growth_path=r.growth_path, career_advice=r.career_advice,
-        ai_reasoning=r.ai_reasoning, trigger_event=r.trigger_event,
-        created_at=r.created_at.isoformat() if r.created_at else None,
-    )
+    try:
+        return DiagnosisResponse(
+            id=r.id, student_id=r.student_id, version=r.version,
+            diagnosis_type=r.diagnosis_type, match_score=r.match_score or 0,
+            dimension_scores=r.dimension_scores or {},
+            dimension_changes=r.dimension_changes or {},
+            gap_details=r.gap_details or [],
+            top5_jobs=r.top5_jobs or [],
+            growth_path=r.growth_path or {},
+            career_advice=r.career_advice or "",
+            ai_reasoning=r.ai_reasoning or {},
+            trigger_event=r.trigger_event or "",
+            created_at=r.created_at.isoformat() if r.created_at else None,
+        )
+    except Exception:
+        return {"id": r.id, "error": "data corrupted", "version": r.version}

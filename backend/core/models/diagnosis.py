@@ -40,3 +40,14 @@ class DiagnosisResponse(BaseModel):
         if isinstance(v, datetime):
             return v.isoformat()
         return str(v)
+
+    @field_validator("ai_reasoning", "growth_path", mode="before")
+    @classmethod
+    def coerce_to_dict(cls, v: Any) -> dict:
+        if isinstance(v, dict):
+            return v
+        if isinstance(v, list):
+            return {"items": v}
+        if v is None:
+            return {}
+        return {"raw": str(v)}
