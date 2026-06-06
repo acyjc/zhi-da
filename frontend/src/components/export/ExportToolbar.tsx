@@ -1,5 +1,5 @@
 // 导出工具栏——底栏 JSON/Excel/PDF 三个导出按钮，hover 发光
-import type { FC } from 'react'
+import { useState, type FC } from 'react'
 
 interface Props {
   studentId: string
@@ -25,14 +25,39 @@ const btnBase: React.CSSProperties = {
 }
 
 const ExportToolbar: FC<Props> = ({ studentId, diagnosisId, version }) => {
+  const [exporting, setExporting] = useState<string | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
+
   const exportUrls: Record<string, string> = {
     json: `/api/export/profile/${studentId}${diagnosisId ? `?diagnosis_id=${diagnosisId}` : ''}`,
     excel: `/api/export/profile/${studentId}/excel${diagnosisId ? `?diagnosis_id=${diagnosisId}` : ''}`,
     pdf: `/api/export/path/${studentId}${diagnosisId ? `?diagnosis_id=${diagnosisId}` : ''}`,
   }
-  const openExport = (format: string) => {
+
+  const fileExtensions: Record<string, string> = { json: 'json', excel: 'xlsx', pdf: 'pdf' }
+
+  const openExport = async (format: string) => {
     const url = exportUrls[format]
-    if (url) window.open(url, '_blank')
+    if (!url) return
+    setExporting(format)
+    try {
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`导出失败 (${res.status})`)
+      const blob = await res.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = `职达_${studentId}.${fileExtensions[format]}`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(blobUrl)
+    } catch (err: any) {
+      setToast(err.message || '导出失败，请稍后重试')
+      setTimeout(() => setToast(null), 3000)
+    } finally {
+      setExporting(null)
+    }
   }
 
   return (
@@ -48,6 +73,7 @@ const ExportToolbar: FC<Props> = ({ studentId, diagnosisId, version }) => {
         <button
           style={btnBase}
           onClick={() => openExport('json')}
+          disabled={exporting !== null}
           onMouseEnter={e => {
             e.currentTarget.style.borderColor = 'var(--accent-blue)'
             e.currentTarget.style.color = 'var(--accent-blue)'
@@ -64,11 +90,12 @@ const ExportToolbar: FC<Props> = ({ studentId, diagnosisId, version }) => {
             <polyline points="7 10 12 15 17 10"/>
             <line x1="12" y1="15" x2="12" y2="3"/>
           </svg>
-          导出 JSON
+          {exporting === 'json' ? '导出中...' : '导出 JSON'}
         </button>
         <button
           style={btnBase}
           onClick={() => openExport('excel')}
+          disabled={exporting !== null}
           onMouseEnter={e => {
             e.currentTarget.style.borderColor = 'var(--accent-green)'
             e.currentTarget.style.color = 'var(--accent-green)'
@@ -87,11 +114,12 @@ const ExportToolbar: FC<Props> = ({ studentId, diagnosisId, version }) => {
             <line x1="16" y1="17" x2="8" y2="17"/>
             <polyline points="10 9 9 9 8 9"/>
           </svg>
-          导出 Excel
+          {exporting === 'excel' ? '导出中...' : '导出 Excel'}
         </button>
         <button
           style={btnBase}
           onClick={() => openExport('pdf')}
+          disabled={exporting !== null}
           onMouseEnter={e => {
             e.currentTarget.style.borderColor = 'var(--accent-rose)'
             e.currentTarget.style.color = 'var(--accent-rose)'
@@ -107,12 +135,22 @@ const ExportToolbar: FC<Props> = ({ studentId, diagnosisId, version }) => {
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
             <polyline points="14 2 14 8 20 8"/>
           </svg>
-          导出 PDF
+          {exporting === 'pdf' ? '导出中...' : '导出 PDF'}
         </button>
       </div>
       <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
         诊断版本 v{version ?? '--'} | {new Date().toISOString().slice(0, 10)}
       </span>
+      {toast && (
+        <div style={{
+          position: 'fixed', bottom: 70, left: '50%', transform: 'translateX(-50%)', zIndex: 300,
+          padding: '8px 20px', borderRadius: 8, background: 'var(--accent-rose)', color: '#fff',
+          fontSize: 13, fontWeight: 600, fontFamily: 'var(--font-display)',
+          boxShadow: '0 4px 12px rgba(244,114,182,0.3)', animation: 'slideUp 0.2s ease-out',
+        }}>
+          {toast}
+        </div>
+      )}
     </div>
   )
 }

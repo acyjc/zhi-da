@@ -1,5 +1,6 @@
 // ECharts 半圆仪表盘——三段色(玫瑰→琥珀→绿)，支持 previousScore 变化箭头
 import ReactECharts from 'echarts-for-react'
+import { useAppStore } from '../../stores/appStore'
 
 interface MatchGaugeProps {
   score: number
@@ -10,7 +11,7 @@ interface MatchGaugeProps {
 const containerStyle: React.CSSProperties = {
   width: '100%',
   height: '100%',
-  background: '#fafaf8',
+  background: 'transparent',
   borderRadius: 12,
   boxSizing: 'border-box',
   position: 'relative',
@@ -20,29 +21,25 @@ const containerStyle: React.CSSProperties = {
   justifyContent: 'center',
 }
 
-const labelStyle: React.CSSProperties = {
-  color: '#8892b0',
-  fontSize: 14,
-  textAlign: 'center',
-  position: 'absolute',
-  top: 22,
-  left: '50%',
-  transform: 'translateX(-50%)',
-}
-
-const deltaStyle: React.CSSProperties = {
-  position: 'absolute',
-  bottom: 18,
-  left: '50%',
-  transform: 'translateX(-50%)',
-  fontFamily: "'Rajdhani', sans-serif",
-  fontSize: 16,
-  display: 'flex',
-  alignItems: 'center',
-  gap: 6,
+// 解析 CSS 变量为实际颜色值（ECharts Canvas 不支持 CSS 自定义属性）
+const resolveCssVar = (varName: string, fallback: string): string => {
+  const val = getComputedStyle(document.documentElement).getPropertyValue(varName).trim()
+  return val || fallback
 }
 
 export default function MatchGauge({ score, previousScore, label }: MatchGaugeProps) {
+  const { theme } = useAppStore()
+  const isDark = theme === 'dark'
+
+  const textColor = isDark ? '#a0a5b5' : '#6e6e73'
+  const detailColor = isDark ? '#f5f6f9' : '#1d1d1f'
+  const anchorBorderColor = isDark ? '#16181d' : '#ffffff'
+
+  // ECharts 渲染到 Canvas，必须使用实际颜色值而非 CSS 变量
+  const roseColor = resolveCssVar('--accent-rose', '#f472b6')
+  const amberColor = resolveCssVar('--accent-amber', '#fbbf24')
+  const greenColor = resolveCssVar('--accent-green', '#6ba87a')
+
   const percent = Math.round(score * 100)
   const delta = previousScore !== undefined ? Math.round((score - previousScore) * 100) : null
   const isUp = delta !== null && delta > 0
@@ -65,12 +62,12 @@ export default function MatchGauge({ score, previousScore, label }: MatchGaugePr
           lineStyle: {
             width: 18,
             color: [
-              [0.4, '#c47a8b'],
-              [0.7, '#c4944a'],
-              [1, '#6ba87a'],
+              [0.4, roseColor],
+              [0.7, amberColor],
+              [1, greenColor],
             ],
             shadowBlur: 8,
-            shadowColor: 'rgba(91, 123, 181, 0.3)',
+            shadowColor: isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(91, 123, 181, 0.2)',
             shadowOffsetX: 0,
             shadowOffsetY: 0,
           },
@@ -101,17 +98,17 @@ export default function MatchGauge({ score, previousScore, label }: MatchGaugePr
           distance: -22,
         },
         axisLabel: {
-          color: '#6e6e73',
+          color: textColor,
           distance: 30,
           fontSize: 11,
-          fontFamily: "'Rajdhani', sans-serif",
+          fontFamily: "var(--font-display)",
         },
         anchor: {
           show: true,
           showAbove: true,
           size: 16,
           itemStyle: {
-            borderColor: '#fafaf8',
+            borderColor: anchorBorderColor,
             borderWidth: 3,
             color: '#5b7bb5',
           },
@@ -122,9 +119,9 @@ export default function MatchGauge({ score, previousScore, label }: MatchGaugePr
         detail: {
           valueAnimation: true,
           formatter: '{value}%',
-          color: '#1d1d1f',
-          fontSize: 36,
-          fontFamily: "'Rajdhani', sans-serif",
+          color: detailColor,
+          fontSize: 32,
+          fontFamily: "var(--font-display)",
           fontWeight: 'bold',
           offsetCenter: [0, '50%'],
         },
@@ -139,21 +136,43 @@ export default function MatchGauge({ score, previousScore, label }: MatchGaugePr
 
   return (
     <div style={containerStyle}>
-      {label && <div style={labelStyle}>{label}</div>}
+      {label && (
+        <div style={{
+          color: 'var(--text-secondary)',
+          fontSize: 14,
+          textAlign: 'center',
+          position: 'absolute',
+          top: 22,
+          left: '50%',
+          transform: 'translateX(-50%)',
+        }}>
+          {label}
+        </div>
+      )}
       <ReactECharts
         option={option}
         style={{ width: '100%', height: '100%' }}
         opts={{ renderer: 'canvas' }}
       />
       {delta !== null && delta !== 0 && (
-        <div style={deltaStyle}>
-          <span style={{ color: isUp ? '#4ade80' : '#f472b6', fontSize: 20 }}>
+        <div style={{
+          position: 'absolute',
+          bottom: 18,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          fontFamily: 'var(--font-display)',
+          fontSize: 16,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+        }}>
+          <span style={{ color: isUp ? 'var(--accent-green)' : 'var(--accent-rose)', fontSize: 20 }}>
             {isUp ? '▲' : '▼'}
           </span>
-          <span style={{ color: isUp ? '#4ade80' : '#f472b6' }}>
+          <span style={{ color: isUp ? 'var(--accent-green)' : 'var(--accent-rose)', fontWeight: 600 }}>
             {isUp ? '+' : ''}{delta}%
           </span>
-          <span style={{ color: '#8892b0', fontSize: 12 }}>vs 上次</span>
+          <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>vs 上次</span>
         </div>
       )}
     </div>

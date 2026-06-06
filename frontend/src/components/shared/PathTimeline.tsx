@@ -31,7 +31,7 @@ const PathTimeline: FC<Props> = ({ phases, currentPhase = -1 }) => {
           background: isCompleted
             ? 'var(--accent-green)'
             : isCurrent
-              ? 'rgba(91,156,245,0.2)'
+              ? 'rgba(91,123,181,0.2)'
               : 'transparent',
           color: isCompleted ? '#fafaf8' : isCurrent ? 'var(--accent-blue)' : 'var(--text-tertiary)',
           fontWeight: 700,
@@ -43,7 +43,6 @@ const PathTimeline: FC<Props> = ({ phases, currentPhase = -1 }) => {
 
         return (
           <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, position: 'relative' }}>
-            <style>{`@keyframes pulseGlow{0%,100%{box-shadow:0 0 0 0 rgba(91,156,245,0.4)}50%{box-shadow:0 0 0 8px rgba(91,156,245,0)}}`}</style>
             <div style={{
               display: 'flex', alignItems: 'center', width: '100%',
               justifyContent: i === 0 ? 'flex-start' : i === phases.length - 1 ? 'flex-end' : 'center',

@@ -1,12 +1,13 @@
 # 诊断分析路由——初诊/再诊(SSE流式)/历史查询
 import asyncio
 import json
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import desc, select, func
-from db.database import get_db
+from db.database import get_db, async_session
 from db.models import DiagnosisResult as DiagORM, Student as StudentORM
+from config.settings import LLM_API_KEY
 from core.models.diagnosis import DiagnoseRequest, ReEvaluateRequest, DiagnosisResponse
 from core.harness.runner import PipelineRunner
 from core.harness.step import PipelineState
@@ -125,8 +126,9 @@ async def _run_pipeline_sse(student_id: str, db: AsyncSession,
 
     async def run_pipeline():
         state_out = await runner.run(state, on_progress=on_progress)
-        # 在后台任务中保存诊断，确保即使客户端断开也能持久化
-        diag = await _save_diagnosis(db, student_id, state_out, diagnosis_type, trigger_event)
+        # 在后台任务中保存诊断，使用全新的独立数据库 session 避免请求生命周期结束关闭
+        async with async_session() as bg_db:
+            diag = await _save_diagnosis(bg_db, student_id, state_out, diagnosis_type, trigger_event)
         await queue.put(("done", diag))
 
     asyncio.create_task(run_pipeline())
@@ -153,12 +155,16 @@ async def _run_pipeline_sse(student_id: str, db: AsyncSession,
 # 全量初步诊断，通过 SSE 流式返回分析进度和结果
 @router.post("/full")
 async def full_diagnosis(req: DiagnoseRequest, db: AsyncSession = Depends(get_db)):
+    if not LLM_API_KEY or not LLM_API_KEY.strip():
+        raise HTTPException(503, "AI服务未就绪，请在后端配置 LLM_API_KEY 环境变量")
     return await _run_pipeline_sse(req.student_id, db, "initial", "")
 
 
 # 基于技能变化触发的再诊断
 @router.post("/re-evaluate")
 async def re_evaluate(req: ReEvaluateRequest, db: AsyncSession = Depends(get_db)):
+    if not LLM_API_KEY or not LLM_API_KEY.strip():
+        raise HTTPException(503, "AI服务未就绪，请在后端配置 LLM_API_KEY 环境变量")
     return await _run_pipeline_sse(req.student_id, db, "re_evaluation", req.trigger_event)
 
 

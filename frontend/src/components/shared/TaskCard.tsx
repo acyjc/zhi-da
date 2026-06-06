@@ -20,16 +20,16 @@ const statusConfig: Record<Props['status'], { icon: string; border: string; bg: 
   completed: {
     icon: '✓',
     border: 'var(--accent-green)',
-    bg: 'rgba(74,222,128,0.06)',
+    bg: 'rgba(107, 168, 122, 0.08)',
     color: 'var(--accent-green)',
     iconBg: 'var(--accent-green)',
   },
   in_progress: {
     icon: '',
     border: 'var(--accent-blue)',
-    bg: 'rgba(91,156,245,0.08)',
+    bg: 'rgba(91, 123, 181, 0.08)',
     color: 'var(--accent-blue)',
-    iconBg: 'rgba(91,156,245,0.2)',
+    iconBg: 'rgba(91, 123, 181, 0.2)',
   },
 }
 
@@ -47,20 +47,27 @@ const TaskCard: FC<Props> = ({ task, status, onComplete, loading }) => {
       cursor: 'default',
       ...(showButton ? {} : { opacity: 0.7 }),
     }}
-    onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = `0 4px 16px ${status === 'pending' ? 'rgba(30,42,69,0.5)' : status === 'in_progress' ? 'rgba(91,156,245,0.12)' : 'rgba(74,222,128,0.1)'}` }}
-    onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = '' }}
+    onMouseEnter={e => {
+      e.currentTarget.style.transform = 'translateY(-2px)'
+      e.currentTarget.style.boxShadow = 'var(--shadow-md)'
+      e.currentTarget.style.borderColor = status === 'pending' ? 'var(--text-tertiary)' : config.border
+    }}
+    onMouseLeave={e => {
+      e.currentTarget.style.transform = ''
+      e.currentTarget.style.boxShadow = ''
+      e.currentTarget.style.borderColor = config.border
+    }}
     >
       <div style={{
         width: 36, height: 36, borderRadius: '50%',
         border: `2px solid ${config.border}`,
         background: config.iconBg,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        flexShrink: 0, color: config.color,
+        flexShrink: 0, color: status === 'completed' ? '#fff' : config.color,
         fontWeight: 700, fontSize: 14,
         fontFamily: 'var(--font-mono)',
         animation: status === 'in_progress' ? 'pulseGlow 1.5s ease-in-out infinite' : 'none',
       }}>
-        <style>{`@keyframes pulseGlow{0%,100%{box-shadow:0 0 0 0 rgba(91,156,245,0.3)}50%{box-shadow:0 0 0 8px rgba(91,156,245,0)}}`}</style>
         {config.icon}
       </div>
       <div style={{ flex: 1 }}>
@@ -81,12 +88,12 @@ const TaskCard: FC<Props> = ({ task, status, onComplete, loading }) => {
                 style={{
                   fontSize: 11, color: 'var(--accent-violet)',
                   textDecoration: 'none', padding: '2px 8px',
-                  borderRadius: 4, background: 'rgba(167,139,250,0.08)',
-                  border: '1px solid rgba(167,139,250,0.2)',
+                  borderRadius: 4, background: 'rgba(139,126,200,0.08)',
+                  border: '1px solid rgba(139,126,200,0.2)',
                   transition: 'all 0.2s',
                 }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(167,139,250,0.16)'; e.currentTarget.style.borderColor = 'var(--accent-violet)' }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(167,139,250,0.08)'; e.currentTarget.style.borderColor = 'rgba(167,139,250,0.2)' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(139,126,200,0.16)'; e.currentTarget.style.borderColor = 'var(--accent-violet)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(139,126,200,0.08)'; e.currentTarget.style.borderColor = 'rgba(139,126,200,0.2)' }}
               >
                 {res.length > 40 ? res.slice(0, 40) + '...' : res}
               </a>
@@ -107,6 +114,7 @@ const TaskCard: FC<Props> = ({ task, status, onComplete, loading }) => {
                 border: '1px solid var(--border-light)', fontSize: 12,
                 background: 'var(--bg-card)', color: 'var(--text-primary)',
                 marginBottom: 8, outline: 'none',
+                transition: 'border-color 0.2s, background-color 0.3s, color 0.3s',
               }}
               onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent-blue)')}
               onBlur={e => (e.currentTarget.style.borderColor = 'var(--border-light)')}

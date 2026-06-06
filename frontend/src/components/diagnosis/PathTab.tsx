@@ -1,7 +1,7 @@
 // 成长路径 Tab——PathTimeline 阶段时间线 + TaskCard 任务列表 + 标记完成交互
-import { useState, type FC } from 'react'
+import { useState, useEffect, type FC } from 'react'
 import type { GrowthPhase } from '../../types'
-import { completeTask } from '../../services/api'
+import { completeTask, getProgress } from '../../services/api'
 import PathTimeline from '../shared/PathTimeline'
 import TaskCard from '../shared/TaskCard'
 
@@ -18,6 +18,19 @@ const PathTab: FC<Props> = ({ growthPath, diagnosisId, studentId, onTaskComplete
   const [completedTasks, setCompletedTasks] = useState<Set<string>>(new Set())
   const [taskError, setTaskError] = useState<string | null>(null)
   const phases = growthPath.phases ?? []
+
+  // 挂载时从后端加载已完成任务，防止刷新丢失状态
+  useEffect(() => {
+    if (!studentId) return
+    getProgress(studentId).then((tasks: any[]) => {
+      if (Array.isArray(tasks)) {
+        const done = new Set<string>(
+          tasks.filter((t: any) => t.status === 'completed').map((t: any) => t.task_name)
+        )
+        setCompletedTasks(done)
+      }
+    }).catch(() => { /* 静默降级，不影响主流程 */ })
+  }, [studentId])
 
   if (phases.length === 0) {
     return (

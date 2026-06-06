@@ -1,5 +1,6 @@
-// 职达小喵桌宠——纯CSS橙色虎斑猫 + 点击展开LLM对话面板
+// 职达小助手桌宠——「月薪喵」视频桌宠 + 点击展开LLM对话面板
 import { useState, useRef, useEffect } from 'react'
+import { useAppStore } from '../../stores/appStore'
 import axios from 'axios'
 
 interface Message {
@@ -17,24 +18,104 @@ const QUICK_REPLIES = [
 export default function SalaryCat() {
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState<Message[]>([
-    { role: 'assistant', content: '你好喵~ 我是职达小喵！有什么职业成长的问题可以问我喵~' },
+    { role: 'assistant', content: '你好喵~ 我是您的求职伴侣「小达」！有什么职业成长的问题可以问我喵~' },
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [blinking, setBlinking] = useState(false)
   const messagesEnd = useRef<HTMLDivElement>(null)
+  
+  const [petPosition, setPetPosition] = useState({ x: 0, y: 0 })
+  const [isDragging, setIsDragging] = useState(false)
+  const petRef = useRef<HTMLDivElement>(null)
+  const dragState = useRef({ dragging: false, startX: 0, startY: 0, offsetX: 0, offsetY: 0 })
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setBlinking(true)
-      setTimeout(() => setBlinking(false), 150)
-    }, 3000)
-    return () => clearInterval(interval)
-  }, [])
+  const { theme } = useAppStore()
 
   useEffect(() => {
     messagesEnd.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const customEvent = e as CustomEvent
+      if (customEvent.detail) {
+        setMessages(prev => [...prev, { role: 'assistant', content: customEvent.detail }])
+        setOpen(true)
+      }
+    }
+    window.addEventListener('salarycat-message', handler)
+    return () => window.removeEventListener('salarycat-message', handler)
+  }, [])
+
+  // Initialize pet position (bottom-right) and handle dragging
+  useEffect(() => {
+    const calcPosition = () => ({
+      x: Math.max(0, window.innerWidth - 104),
+      y: Math.max(0, window.innerHeight - 104),
+    })
+
+    const initial = calcPosition()
+    petRef.current?.style.setProperty('left', `${initial.x}px`)
+    petRef.current?.style.setProperty('top', `${initial.y}px`)
+    setPetPosition(initial)
+
+    const onPointerMove = (e: PointerEvent) => {
+      const ds = dragState.current
+      if (!ds.dragging) return
+      const dx = e.clientX - ds.startX
+      const dy = e.clientY - ds.startY
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+        setIsDragging(true)
+        const newX = Math.max(0, Math.min(window.innerWidth - 80, ds.offsetX + dx))
+        const newY = Math.max(0, Math.min(window.innerHeight - 80, ds.offsetY + dy))
+        if (petRef.current) {
+          petRef.current.style.left = `${newX}px`
+          petRef.current.style.top = `${newY}px`
+        }
+      }
+    }
+
+    const onPointerUp = (e: PointerEvent) => {
+      const ds = dragState.current
+      if (!ds.dragging) return
+      ds.dragging = false
+      const dx = e.clientX - ds.startX
+      const dy = e.clientY - ds.startY
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+        const newX = Math.max(0, Math.min(window.innerWidth - 80, ds.offsetX + dx))
+        const newY = Math.max(0, Math.min(window.innerHeight - 80, ds.offsetY + dy))
+        setPetPosition({ x: newX, y: newY })
+        setIsDragging(false)
+      } else {
+        setIsDragging(false)
+        setOpen(prev => !prev)
+      }
+    }
+
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', onPointerUp)
+
+    const onResize = () => {
+      setPetPosition(prev => {
+        const clamped = {
+          x: Math.max(0, Math.min(window.innerWidth - 80, prev.x)),
+          y: Math.max(0, Math.min(window.innerHeight - 80, prev.y)),
+        }
+        if (petRef.current) {
+          petRef.current.style.left = `${clamped.x}px`
+          petRef.current.style.top = `${clamped.y}px`
+        }
+        return clamped
+      })
+    }
+    window.addEventListener('resize', onResize)
+
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', onPointerUp)
+      window.removeEventListener('resize', onResize)
+    }
+  }, [])
 
   const send = async (text: string) => {
     if (!text.trim() || loading) return
@@ -49,7 +130,7 @@ export default function SalaryCat() {
       })
       setMessages(prev => [...prev, { role: 'assistant', content: res.data.reply }])
     } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: '喵…网络不太好，稍后再试试吧~' }])
+      setMessages(prev => [...prev, { role: 'assistant', content: '喵…网络连接失败，请稍后再试喵~' }])
     } finally {
       setLoading(false)
     }
@@ -62,12 +143,31 @@ export default function SalaryCat() {
     }
   }
 
+  const isDark = theme === 'dark'
+
+  // Compute chat panel position relative to pet
+  const panelStyle: React.CSSProperties = (() => {
+    const panelW = 340
+    const panelH = 440
+    const gap = 12
+    const rightSpace = window.innerWidth - petPosition.x - 80
+    const onRight = rightSpace >= panelW + gap
+    return {
+      position: 'fixed' as const,
+      left: onRight ? petPosition.x + 80 + gap : Math.max(8, petPosition.x - panelW - gap),
+      top: Math.max(8, Math.min(window.innerHeight - panelH - 8, petPosition.y - panelH / 2 + 40)),
+      width: `min(${panelW}px, calc(100vw - 48px))`,
+      height: panelH,
+      zIndex: 9998,
+    }
+  })()
+
   return (
     <>
       {/* 对话面板——消息列表+快捷提问+输入框 */}
       {open && (
         <div style={{
-          position: 'fixed', bottom: 120, right: 24, width: 'min(340px, calc(100vw - 48px))', height: 440, zIndex: 9998,
+          ...panelStyle,
           background: 'var(--bg-card)', borderRadius: 18, border: '1px solid var(--border-light)',
           boxShadow: 'var(--shadow-md)', display: 'flex', flexDirection: 'column',
           overflow: 'hidden', animation: 'slideUp 0.3s ease-out',
@@ -75,15 +175,17 @@ export default function SalaryCat() {
           {/* Header */}
           <div style={{
             padding: '14px 18px', borderBottom: '1px solid var(--border-light)',
-            background: 'linear-gradient(135deg, #fef7ed, #fff8f0)',
+            background: isDark
+              ? 'linear-gradient(135deg, #1e1d24, #16151a)'
+              : 'linear-gradient(135deg, #fdf8f5, #fffcfb)',
             display: 'flex', alignItems: 'center', gap: 10,
           }}>
-            <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#f5a623', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
-              🐱
+            <div style={{ width: 36, height: 36, borderRadius: '50%', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <img src="/xiaoda.png" alt="小达" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>职达小喵</div>
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>你的职业成长伙伴</div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>小达</div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>您的 AI 职业成长伙伴</div>
             </div>
             <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--text-tertiary)', padding: 4 }}>
               ✕
@@ -98,13 +200,13 @@ export default function SalaryCat() {
                 flexDirection: msg.role === 'user' ? 'row-reverse' : 'row',
               }}>
                 {msg.role === 'assistant' && (
-                  <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#fef7ed', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0, border: '1px solid #f0d9a0' }}>
-                    🐱
+                  <div style={{ width: 28, height: 28, borderRadius: '50%', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, border: isDark ? '1px solid #4a332a' : '1px solid #fbcb8e' }}>
+                    <img src="/xiaoda.png" alt="小达" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   </div>
                 )}
                 <div style={{
                   maxWidth: '80%', padding: '10px 14px', borderRadius: msg.role === 'user' ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
-                  background: msg.role === 'user' ? 'var(--accent-blue)' : '#f8f7f4',
+                  background: msg.role === 'user' ? 'var(--accent-blue)' : 'var(--bg-hover)',
                   color: msg.role === 'user' ? '#fff' : 'var(--text-primary)',
                   fontSize: 13, lineHeight: 1.6, wordBreak: 'break-word',
                 }}>
@@ -114,8 +216,10 @@ export default function SalaryCat() {
             ))}
             {loading && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#fef7ed', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, border: '1px solid #f0d9a0' }}>🐱</div>
-                <div style={{ display: 'flex', gap: 4, padding: '10px 14px', background: '#f8f7f4', borderRadius: '14px 14px 14px 4px' }}>
+                <div style={{ width: 28, height: 28, borderRadius: '50%', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', border: isDark ? '1px solid #4a332a' : '1px solid #fbcb8e', flexShrink: 0 }}>
+                  <img src="/xiaoda.png" alt="小达" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                </div>
+                <div style={{ display: 'flex', gap: 4, padding: '10px 14px', background: 'var(--bg-hover)', borderRadius: '14px 14px 14px 4px' }}>
                   {[0, 1, 2].map(i => (
                     <div key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--text-tertiary)', animation: `blink 1.4s ${i * 0.2}s infinite` }} />
                   ))}
@@ -131,8 +235,8 @@ export default function SalaryCat() {
             <div style={{ padding: '0 16px 8px', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {QUICK_REPLIES.map(q => (
                 <button key={q} onClick={() => send(q)}
-                  style={{ padding: '4px 10px', borderRadius: 12, border: '1px solid var(--border-light)', background: '#fff', cursor: 'pointer', fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap', transition: 'border-color 0.2s' }}
-                  onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--accent-amber)')}
+                  style={{ padding: '4px 10px', borderRadius: 12, border: '1px solid var(--border-light)', background: 'var(--bg-card)', cursor: 'pointer', fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap', transition: 'border-color 0.2s, background-color 0.2s' }}
+                  onMouseEnter={e => (e.currentTarget.style.borderColor = 'var(--accent-teal)')}
                   onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border-light)')}
                 >{q}</button>
               ))}
@@ -145,90 +249,50 @@ export default function SalaryCat() {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="问问小喵..."
-              style={{ flex: 1, border: '1px solid var(--border-light)', borderRadius: 20, padding: '8px 14px', fontSize: 13, outline: 'none', background: '#fafaf8', color: 'var(--text-primary)', }}
-              onFocus={e => (e.target.style.borderColor = 'var(--accent-amber)')}
+              placeholder="发送消息..."
+              style={{ flex: 1, border: '1px solid var(--border-light)', borderRadius: 20, padding: '8px 14px', fontSize: 13, outline: 'none', background: 'var(--bg-hover)', color: 'var(--text-primary)', }}
+              onFocus={e => (e.target.style.borderColor = 'var(--accent-teal)')}
               onBlur={e => (e.target.style.borderColor = 'var(--border-light)')}
             />
             <button onClick={() => send(input)} disabled={loading || !input.trim()}
-              style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: input.trim() ? 'var(--accent-amber)' : 'var(--border-light)', color: '#fff', fontSize: 16, cursor: input.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s', flexShrink: 0 }}>
+              style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', background: input.trim() ? 'var(--accent-teal)' : 'var(--border-light)', color: '#fff', fontSize: 16, cursor: input.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s', flexShrink: 0 }}>
               ➤
             </button>
           </div>
         </div>
       )}
 
-      {/* Cat Button */}
-      <div onClick={() => setOpen(!open)} title="点击和职达小喵聊天" style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 9999, cursor: 'pointer', userSelect: 'none' }}>
-        {/* 猫身动画：浮动/呼吸/眨眼/耳朵抽动/尾巴摇摆 */}
-        <style>{`
-          @keyframes catBounce { 0%,100% { transform: translateY(0); } 30% { transform: translateY(-8px); } 50% { transform: translateY(0); } 70% { transform: translateY(-4px); } }
-          @keyframes catSleep { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(2px) scale(0.97); } }
-          @keyframes earTwitch { 0%,90%,100% { transform: rotate(0deg); } 95% { transform: rotate(-8deg); } }
-          @keyframes tailWag { 0%,100% { transform: rotate(0deg); } 25% { transform: rotate(15deg); } 75% { transform: rotate(-15deg); } }
-          @keyframes catFloat { 0%,100% { transform: translateY(0) rotate(0deg); } 25% { transform: translateY(-3px) rotate(1deg); } 75% { transform: translateY(-3px) rotate(-1deg); } }
-          .cat-wrapper:hover .cat-body { animation: catBounce 0.6s ease-in-out !important; }
-          .cat-wrapper:hover { filter: drop-shadow(0 0 12px rgba(245,166,35,0.3)); }
-        `}</style>
-
-        <div className="cat-wrapper" style={{ width: 80, height: 80, position: 'relative', animation: 'catFloat 4s ease-in-out infinite' }}>
-          {/* Body shadow */}
-          <div style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: 56, height: 6, borderRadius: '50%', background: 'rgba(0,0,0,0.06)' }} />
-
-          {/* 猫身体——橙色主体+浅色肚子+摇摆尾巴 */}
-          <div className="cat-body" style={{ position: 'absolute', bottom: 4, left: 14, width: 52, height: 46, borderRadius: '50% 50% 45% 45%', background: '#f5a623', boxShadow: 'inset 0 4px 8px rgba(255,255,255,0.2)', animation: 'catSleep 6s ease-in-out infinite' }}>
-            {/* Belly */}
-            <div style={{ position: 'absolute', bottom: 6, left: 10, width: 32, height: 24, borderRadius: '50%', background: '#fef3d5' }} />
-
-            {/* Tail */}
-            <div style={{ position: 'absolute', right: -16, bottom: 20, width: 22, height: 8, borderRadius: '0 10px 10px 0', background: '#f5a623', transformOrigin: 'left center', animation: 'tailWag 2s ease-in-out infinite' }}>
-              <div style={{ position: 'absolute', right: -6, top: -3, width: 10, height: 10, borderRadius: '50%', background: '#e8961a' }} />
-            </div>
-
-            {/* Left paw */}
-            <div style={{ position: 'absolute', bottom: 2, left: 6, width: 14, height: 10, borderRadius: '50%', background: '#f5a623' }} />
-            {/* Right paw */}
-            <div style={{ position: 'absolute', bottom: 2, right: 6, width: 14, height: 10, borderRadius: '50%', background: '#f5a623' }} />
-          </div>
-
-          {/* 猫头——三角耳朵+额头条纹+圆眼高光+鼻子腮红 */}
-          <div style={{ position: 'absolute', top: 0, left: 10, width: 60, height: 54, borderRadius: '50%', background: '#f5a623', boxShadow: 'inset 0 4px 8px rgba(255,255,255,0.15)' }}>
-            {/* Left ear */}
-            <div style={{ position: 'absolute', top: -10, left: 4, width: 0, height: 0, borderLeft: '10px solid transparent', borderRight: '10px solid transparent', borderBottom: '22px solid #f5a623', animation: 'earTwitch 4s ease-in-out infinite' }}>
-              <div style={{ position: 'absolute', top: 8, left: -6, width: 0, height: 0, borderLeft: '6px solid transparent', borderRight: '6px solid transparent', borderBottom: '14px solid #fbcb8e' }} />
-            </div>
-            {/* Right ear */}
-            <div style={{ position: 'absolute', top: -10, right: 4, width: 0, height: 0, borderLeft: '10px solid transparent', borderRight: '10px solid transparent', borderBottom: '22px solid #f5a623', animation: 'earTwitch 4s ease-in-out infinite 2s' }}>
-              <div style={{ position: 'absolute', top: 8, left: -6, width: 0, height: 0, borderLeft: '6px solid transparent', borderRight: '6px solid transparent', borderBottom: '14px solid #fbcb8e' }} />
-            </div>
-
-            {/* Forehead stripes */}
-            <div style={{ position: 'absolute', top: 14, left: 16, width: 28, height: 3, borderRadius: 2, background: '#e08e1a', transform: 'rotate(-2deg)' }} />
-            <div style={{ position: 'absolute', top: 19, left: 18, width: 24, height: 3, borderRadius: 2, background: '#e08e1a' }} />
-            <div style={{ position: 'absolute', top: 24, left: 20, width: 20, height: 3, borderRadius: 2, background: '#e08e1a', transform: 'rotate(2deg)' }} />
-
-            {/* Eyes */}
-            <div style={{ position: 'absolute', top: 22, left: 12 }}>
-              <div style={{ width: 12, height: blinking ? 3 : 14, borderRadius: blinking ? 2 : '50%', background: '#2c2c2c', transition: 'height 0.05s', overflow: 'hidden' }}>
-                {!blinking && <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: 3 }} />}
-              </div>
-            </div>
-            <div style={{ position: 'absolute', top: 22, right: 12 }}>
-              <div style={{ width: 12, height: blinking ? 3 : 14, borderRadius: blinking ? 2 : '50%', background: '#2c2c2c', transition: 'height 0.05s', overflow: 'hidden' }}>
-                {!blinking && <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: 3 }} />}
-              </div>
-            </div>
-
-            {/* Nose */}
-            <div style={{ position: 'absolute', top: 34, left: '50%', transform: 'translateX(-50%)', width: 8, height: 6, borderRadius: '50%', background: '#e08e1a' }} />
-            {/* Mouth */}
-            <div style={{ position: 'absolute', top: 40, left: 26, width: 8, height: 4, borderBottom: '2px solid #cc8818', borderRadius: '0 0 50% 50%' }} />
-
-            {/* Cheeks */}
-            <div style={{ position: 'absolute', top: 30, left: 4, width: 8, height: 5, borderRadius: '50%', background: 'rgba(255,200,150,0.4)' }} />
-            <div style={{ position: 'absolute', top: 30, right: 4, width: 8, height: 5, borderRadius: '50%', background: 'rgba(255,200,150,0.4)' }} />
-          </div>
-        </div>
+      {/* Mascot Video Button (Draggable) */}
+      <div
+        ref={petRef}
+        title="点击和小达聊天"
+        className={`salarycat-pet${isDragging ? ' dragging' : ''}`}
+        style={{ left: petPosition.x, top: petPosition.y }}
+        onPointerDown={(e) => {
+          e.preventDefault()
+          petRef.current?.setPointerCapture(e.pointerId)
+          dragState.current = {
+            dragging: true,
+            startX: e.clientX,
+            startY: e.clientY,
+            offsetX: petPosition.x,
+            offsetY: petPosition.y,
+          }
+        }}
+      >
+        <video
+          src="/yuexinmiao.mp4"
+          autoPlay
+          muted
+          loop
+          playsInline
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            pointerEvents: 'none',
+          }}
+        />
       </div>
     </>
   )

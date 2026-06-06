@@ -1,5 +1,6 @@
 # 智能对话路由——职达小喵桌宠对话接口，支持多轮上下文，仅回答职业成长领域问题
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from config.settings import LLM_API_KEY
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from db.database import get_db
@@ -38,6 +39,8 @@ class ChatResponse(BaseModel):
 
 @router.post("", response_model=ChatResponse)
 async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)):
+    if not LLM_API_KEY or not LLM_API_KEY.strip():
+        raise HTTPException(503, "AI服务未就绪，请在后端配置 LLM_API_KEY 环境变量喵")
     llm = get_llm_client()
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     for msg in req.messages[-10:]:

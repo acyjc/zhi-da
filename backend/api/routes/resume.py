@@ -158,6 +158,9 @@ def _validate_and_clean(data: dict) -> dict:
 
 
 async def parse_resume_with_llm(text: str) -> ResumeParseResponse:
+    from config.settings import LLM_API_KEY
+    if not LLM_API_KEY or not LLM_API_KEY.strip():
+        raise HTTPException(503, "AI服务未就绪，请在后端配置 LLM_API_KEY 环境变量")
     llm = get_llm_client()
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},

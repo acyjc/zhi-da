@@ -12,9 +12,9 @@ interface Props {
 
 const statusColors: Record<Step['status'], { bg: string; border: string; text: string }> = {
   wait: { bg: 'transparent', border: 'var(--text-tertiary)', text: 'var(--text-tertiary)' },
-  process: { bg: 'rgba(91,156,245,0.15)', border: 'var(--accent-blue)', text: 'var(--accent-blue)' },
-  finish: { bg: 'rgba(74,222,128,0.15)', border: 'var(--accent-green)', text: 'var(--accent-green)' },
-  error: { bg: 'rgba(244,114,182,0.15)', border: 'var(--accent-rose)', text: 'var(--accent-rose)' },
+  process: { bg: 'rgba(91,123,181,0.15)', border: 'var(--accent-blue)', text: 'var(--accent-blue)' },
+  finish: { bg: 'rgba(107,168,122,0.15)', border: 'var(--accent-green)', text: 'var(--accent-green)' },
+  error: { bg: 'rgba(196,122,139,0.15)', border: 'var(--accent-rose)', text: 'var(--accent-rose)' },
 }
 
 const StatusIcon: FC<{ status: Step['status'] }> = ({ status }) => {
@@ -30,9 +30,7 @@ const StatusIcon: FC<{ status: Step['status'] }> = ({ status }) => {
   if (status === 'finish') return <div style={base}>✓</div>
   if (status === 'error') return <div style={base}>✕</div>
   if (status === 'process') return (
-    <div style={{ ...base, animation: 'pulseGlow 1.5s ease-in-out infinite' }}>
-      <style>{`@keyframes pulseGlow{0%,100%{box-shadow:0 0 0 0 rgba(91,156,245,0.4)}50%{box-shadow:0 0 0 8px rgba(91,156,245,0)}}`}</style>
-    </div>
+    <div style={{ ...base, animation: 'pulseGlow 1.5s ease-in-out infinite' }} />
   )
   return <div style={base} />
 }

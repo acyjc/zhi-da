@@ -1,9 +1,10 @@
 // 信息输入页——步骤1上传简历→AI解析→步骤2确认补全→提交
 import { useState, useRef, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAppStore } from '../stores/appStore'
-import { createStudent, updateStudent, listJobs } from '../services/api'
+import { createStudent, updateStudent, listJobs, getHealthStatus, getStudentJobs } from '../services/api'
 import axios from 'axios'
+import ThemeToggle from '../components/shared/ThemeToggle'
 
 const API_BASE = '/api'
 // 允许上传的文件 MIME 类型
@@ -40,6 +41,7 @@ interface ParsedData {
   tech_skills: Record<string, number>; soft_skills: Record<string, number>;
   domain_knowledge: Record<string, number>; project_exp: any[];
   summary: string;
+  target_job_post_id?: string;
 }
 
 const initialParsed: ParsedData = {
@@ -55,7 +57,26 @@ function humanFileSize(bytes: number) {
 
 export default function ProfileInput() {
   const navigate = useNavigate()
-  const { setStudent, setJobs, setDiagnosisResult, student: existingStudent } = useAppStore()
+  const location = useLocation()
+  const fromDashboard = location.state?.fromDashboard
+  const [hasJumped, setHasJumped] = useState(false)
+  const [aiStatus, setAiStatus] = useState<'configured' | 'missing_key' | 'checking'>('checking')
+
+  useEffect(() => {
+    getHealthStatus()
+      .then(res => {
+        if (res.ai_status === 'configured') {
+          setAiStatus('configured')
+        } else {
+          setAiStatus('missing_key')
+        }
+      })
+      .catch(() => {
+        setAiStatus('missing_key')
+      })
+  }, [])
+
+  const { setStudent, setJobs, setDiagnosisResult, student: existingStudent, hydrateFromStorage } = useAppStore()
   const [step, setStep] = useState<'upload' | 'parsing' | 'parsing-result' | 'review' | 'submitting'>('upload')
   const [resumeText, setResumeText] = useState('')
   const [resumeFile, setResumeFile] = useState<File | null>(null)
@@ -63,19 +84,36 @@ export default function ProfileInput() {
   const [parseError, setParseError] = useState('')
   const [parsed, setParsed] = useState<ParsedData>(initialParsed)
   const [error, setError] = useState('')
-  const [jobOptions, setJobOptions] = useState<string[]>([])
+  const [systemJobs, setSystemJobs] = useState<any[]>([])
+  const [entJobs, setEntJobs] = useState<any[]>([])
+  
+  // 实时表单校验状态
+  const [nameError, setNameError] = useState('')
+  const [jobError, setJobError] = useState('')
+
   const fileInputRef = useRef<HTMLInputElement>(null)
   const newSkillRef = useRef<HTMLInputElement>(null)
   const newSkillLevelRef = useRef<HTMLSelectElement>(null)
 
+  // 1. 初始化时做 hydration
   useEffect(() => {
-    listJobs()
-      .then(jobs => setJobOptions(jobs.map((j: any) => j.title)))
-      .catch(() => { console.warn('加载岗位列表失败，使用空列表') })
+    hydrateFromStorage()
   }, [])
 
+  // 2. 加载岗位列表
   useEffect(() => {
-    if (existingStudent && step === 'upload') {
+    listJobs()
+      .then(jobs => setSystemJobs(jobs))
+      .catch(() => { console.warn('加载岗位列表失败，使用空列表') })
+    getStudentJobs()
+      .then(jobs => setEntJobs(jobs))
+      .catch(() => { console.warn('加载企业岗位列表失败，使用空列表') })
+  }, [])
+
+  // 3. 依赖 existingStudent 与 fromDashboard 进行跳转与预填
+  useEffect(() => {
+    if (existingStudent && fromDashboard && step === 'upload' && !hasJumped) {
+      const storedJobPostId = localStorage.getItem('target_job_post_id') || ''
       setParsed({
         name: existingStudent.name || '',
         grade: existingStudent.grade || '',
@@ -86,11 +124,13 @@ export default function ProfileInput() {
         domain_knowledge: existingStudent.domain_knowledge || {},
         project_exp: existingStudent.project_exp || [],
         summary: '',
+        target_job_post_id: storedJobPostId,
       })
       setResumeText(existingStudent.resume_text || '')
       setStep('review')
+      setHasJumped(true)
     }
-  }, [])
+  }, [existingStudent, fromDashboard, hasJumped, step])
 
   // 文件拖拽/选择处理——校验类型、大小、内容长度
   const handleFileDrop = (files: FileList) => {
@@ -156,7 +196,26 @@ export default function ProfileInput() {
   }
 
   const updateParsed = (field: keyof ParsedData, value: any) => {
-    setParsed(prev => ({ ...prev, [field]: value }))
+    setParsed(prev => {
+      const updated = { ...prev, [field]: value }
+      // 实时清除错误提示
+      if (field === 'name' && value.trim()) setNameError('')
+      if (field === 'target_job' && value) setJobError('')
+      return updated
+    })
+  }
+
+  // 失去焦点校验
+  const handleNameBlur = () => {
+    if (!parsed.name.trim()) {
+      setNameError('姓名是必填项')
+    }
+  }
+
+  const handleJobBlur = () => {
+    if (!parsed.target_job) {
+      setJobError('目标岗位是必填项')
+    }
   }
 
   // 手动添加技能到列表
@@ -172,8 +231,21 @@ export default function ProfileInput() {
   // 提交学生信息并跳转到 Dashboard
   const handleSubmit = async () => {
     const name = parsed.name.trim()
-    if (!name) { setError('请填写姓名'); return }
-    if (!parsed.target_job) { setError('请选择目标岗位'); return }
+    let hasError = false
+
+    if (!name) {
+      setNameError('姓名是必填项')
+      hasError = true
+    }
+    if (!parsed.target_job) {
+      setJobError('请选择目标岗位')
+      hasError = true
+    }
+
+    if (hasError) {
+      setError('请先完善必填项信息')
+      return
+    }
 
     setError('')
     setStep('submitting')
@@ -198,7 +270,7 @@ export default function ProfileInput() {
       localStorage.setItem('student_id', student.id)
       listJobs().then(jobs => setJobs(jobs)).catch(() => {})
       setDiagnosisResult(null)
-      navigate('/dashboard')
+      navigate('/student/dashboard')
     } catch (e: any) {
       const detail = e?.response?.data?.detail || e?.response?.data?.error || ''
       const msg = detail || e?.message || '提交失败，请检查网络连接后重试'
@@ -211,23 +283,30 @@ export default function ProfileInput() {
     }
   }
 
+
   // 步骤指示器标签
   const stepLabels = ['上传简历', 'AI 解析', '确认信息']
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-page)', padding: '32px 24px' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg-page)', padding: '32px 24px', transition: 'background-color 0.3s' }}>
       <div style={{ maxWidth: 720, margin: '0 auto' }}>
-        <button className="btn btn-ghost" onClick={() => navigate('/')} style={{ marginBottom: 28, padding: '8px 18px', fontSize: 13 }}>
-          ← 返回首页
-        </button>
+        
+        {/* Navigation Bar */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
+          <button className="btn btn-ghost" onClick={() => navigate('/')} style={{ padding: '8px 18px', fontSize: 13 }}>
+            ← 返回首页
+          </button>
+          <ThemeToggle />
+        </div>
 
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 32, fontWeight: 700, marginBottom: 6 }}>
+          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 32, fontWeight: 700, marginBottom: 6, color: 'var(--text-primary)' }}>
             开启你的成长诊断
           </h2>
           <p style={{ color: 'var(--text-tertiary)', fontSize: 14 }}>上传简历 → AI智能解析 → 确认信息 → 一键诊断</p>
         </div>
 
+        {/* Step indicators */}
         <div style={{ display: 'flex', justifyContent: 'center', gap: 40, marginBottom: 28 }}>
           {stepLabels.map((label, i) => {
             const keys = ['upload', 'parsing', 'review'] as const
@@ -242,6 +321,7 @@ export default function ProfileInput() {
                   fontSize: 13, fontWeight: 700,
                   background: isDone ? 'var(--accent-green)' : isCurrent ? 'var(--accent-blue)' : 'var(--border-light)',
                   color: isDone || isCurrent ? '#fff' : 'var(--text-tertiary)',
+                  transition: 'background-color 0.3s',
                 }}>
                   {isDone ? '✓' : i + 1}
                 </div>
@@ -256,18 +336,65 @@ export default function ProfileInput() {
           <div className="card" style={{ padding: 36, animation: 'fadeIn 0.4s ease-out' }}>
             <h3 className="section-title">上传简历</h3>
 
-            <div style={{ border: `2px dashed var(--border-light)`, borderRadius: 'var(--radius-lg)', padding: '40px 24px', textAlign: 'center', cursor: 'pointer', background: 'var(--bg-hover)', marginBottom: 20, transition: 'border-color 0.15s, background 0.15s' }}
-              onClick={() => fileInputRef.current?.click()}
-              onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = 'var(--accent-blue)'; e.currentTarget.style.background = 'rgba(91,123,181,0.03)' }}
-              onDragLeave={e => { e.currentTarget.style.borderColor = 'var(--border-light)'; e.currentTarget.style.background = 'var(--bg-hover)' }}
-              onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = 'var(--border-light)'; e.currentTarget.style.background = 'var(--bg-hover)'; if (e.dataTransfer.files.length) handleFileDrop(e.dataTransfer.files) }}
+            {aiStatus === 'missing_key' && (
+              <div style={{
+                padding: '14px 18px',
+                borderRadius: '12px',
+                background: 'rgba(239, 68, 68, 0.06)',
+                border: '1px solid rgba(239, 68, 68, 0.15)',
+                color: '#dc2626',
+                fontSize: '13px',
+                lineHeight: 1.6,
+                marginBottom: '20px',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '8px',
+              }}>
+                <span style={{ fontSize: '16px', marginTop: 1 }}>⚠️</span>
+                <div>
+                  <strong>AI 服务未就绪</strong><br />
+                  请在后端配置 <code>LLM_API_KEY</code> 环境变量（例如在 <code>backend/.env</code> 文件中）以启用简历解析与职业诊断功能喵。
+                </div>
+              </div>
+            )}
+
+            <div style={{
+              border: `2px dashed var(--border-light)`,
+              borderRadius: 'var(--radius-lg)',
+              padding: '40px 24px',
+              textAlign: 'center',
+              cursor: aiStatus === 'missing_key' ? 'not-allowed' : 'pointer',
+              background: 'var(--bg-hover)',
+              opacity: aiStatus === 'missing_key' ? 0.6 : 1,
+              marginBottom: 20,
+              transition: 'border-color 0.15s, background 0.15s'
+            }}
+              onClick={() => { if (aiStatus !== 'missing_key') fileInputRef.current?.click() }}
+              onDragOver={e => {
+                if (aiStatus === 'missing_key') return
+                e.preventDefault()
+                e.currentTarget.style.borderColor = 'var(--accent-blue)'
+                e.currentTarget.style.background = 'rgba(91,123,181,0.03)'
+              }}
+              onDragLeave={e => {
+                if (aiStatus === 'missing_key') return
+                e.currentTarget.style.borderColor = 'var(--border-light)'
+                e.currentTarget.style.background = 'var(--bg-hover)'
+              }}
+              onDrop={e => {
+                e.preventDefault()
+                if (aiStatus === 'missing_key') return
+                e.currentTarget.style.borderColor = 'var(--border-light)'
+                e.currentTarget.style.background = 'var(--bg-hover)'
+                if (e.dataTransfer.files.length) handleFileDrop(e.dataTransfer.files)
+              }}
             >
               <div style={{ fontSize: 36, marginBottom: 10, color: 'var(--text-tertiary)' }}>{resumeFile ? '📄' : '📤'}</div>
               <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 4 }}>
                 {resumeFile ? `${resumeFile.name}（${humanFileSize(resumeFile.size)}）` : '拖拽简历文件到此处，或点击选择'}
               </p>
               <p style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>支持 PDF / DOCX / TXT，最大 {MAX_SIZE_MB}MB</p>
-              <input ref={fileInputRef} type="file" accept=".pdf,.docx,.txt" style={{ display: 'none' }} onChange={e => { if (e.target.files) handleFileDrop(e.target.files) }} />
+              <input ref={fileInputRef} type="file" accept=".pdf,.docx,.txt" style={{ display: 'none' }} onChange={e => { if (e.target.files) handleFileDrop(e.target.files) }} disabled={aiStatus === 'missing_key'} />
             </div>
 
             {fileError && (
@@ -278,7 +405,7 @@ export default function ProfileInput() {
 
             <div className="form-group" style={{ marginBottom: 16 }}>
               <label>或直接粘贴简历文本</label>
-              <textarea rows={8} placeholder="请在此粘贴你的简历内容..." maxLength={10000} value={resumeText} onChange={e => setResumeText(e.target.value)} />
+              <textarea rows={8} placeholder="请在此粘贴你的简历内容..." maxLength={10000} value={resumeText} onChange={e => setResumeText(e.target.value)} disabled={aiStatus === 'missing_key'} style={{ opacity: aiStatus === 'missing_key' ? 0.6 : 1 }} />
               <div style={{ textAlign: 'right', color: 'var(--text-tertiary)', fontSize: 12, marginTop: 4 }}>{resumeText.length} / 10000</div>
             </div>
 
@@ -286,7 +413,15 @@ export default function ProfileInput() {
 
             <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
               <button className="btn btn-ghost" onClick={handleSkipParse}>跳过解析，手动填写</button>
-              <button className="btn btn-primary" onClick={handleParse}>
+              <button
+                className="btn btn-primary"
+                onClick={handleParse}
+                disabled={aiStatus === 'missing_key'}
+                style={{
+                  opacity: aiStatus === 'missing_key' ? 0.6 : 1,
+                  cursor: aiStatus === 'missing_key' ? 'not-allowed' : 'pointer'
+                }}
+              >
                 AI 解析简历 →
               </button>
             </div>
@@ -333,7 +468,7 @@ export default function ProfileInput() {
             </div>
 
             {parsed.summary && (
-              <div style={{ padding: '12px 16px', borderRadius: 'var(--radius-sm)', background: '#eff6ff', border: '1px solid #dbeafe', marginBottom: 16, fontSize: 13, color: 'var(--accent-blue)', lineHeight: 1.6 }}>
+              <div style={{ padding: '12px 16px', borderRadius: 'var(--radius-sm)', background: 'rgba(91,123,181,0.08)', border: '1px solid var(--border-light)', marginBottom: 16, fontSize: 13, color: 'var(--accent-blue)', lineHeight: 1.6 }}>
                 {parsed.summary}
               </div>
             )}
@@ -400,16 +535,23 @@ export default function ProfileInput() {
         {(step === 'review' || step === 'submitting') && (
           <div className="card" style={{ padding: 36, animation: 'fadeIn 0.4s ease-out' }}>
             {parsed.summary && (
-              <div style={{ padding: '12px 16px', borderRadius: 'var(--radius-sm)', background: '#eff6ff', border: '1px solid #dbeafe', marginBottom: 24, fontSize: 13, color: 'var(--accent-blue)', lineHeight: 1.6 }}>
+              <div style={{ padding: '12px 16px', borderRadius: 'var(--radius-sm)', background: 'rgba(91,123,181,0.08)', border: '1px solid var(--border-light)', marginBottom: 24, fontSize: 13, color: 'var(--accent-blue)', lineHeight: 1.6 }}>
                 AI 摘要：{parsed.summary}
               </div>
             )}
 
-            <h3 className="section-title">确认基本信息</h3>
+            <h3 className="section-title" style={{ color: 'var(--text-primary)' }}>确认基本信息</h3>
             <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
               <div className="form-group" style={{ flex: 1 }}>
                 <label>姓名 *</label>
-                <input value={parsed.name} onChange={e => updateParsed('name', e.target.value)} placeholder="你的姓名" />
+                <input
+                  value={parsed.name}
+                  onChange={e => updateParsed('name', e.target.value)}
+                  onBlur={handleNameBlur}
+                  placeholder="你的姓名"
+                  style={{ borderColor: nameError ? 'var(--accent-rose)' : 'var(--border-light)' }}
+                />
+                {nameError && <span style={{ color: 'var(--accent-rose)', fontSize: 11, marginTop: 2 }}>{nameError}</span>}
               </div>
               <div className="form-group" style={{ width: 160 }}>
                 <label>年级</label>
@@ -426,14 +568,44 @@ export default function ProfileInput() {
               </div>
               <div className="form-group" style={{ flex: 1 }}>
                 <label>目标岗位 *</label>
-                <select value={parsed.target_job} onChange={e => updateParsed('target_job', e.target.value)}>
+                <select
+                  value={parsed.target_job_post_id ? `ent_${parsed.target_job_post_id}` : parsed.target_job}
+                  onChange={e => {
+                    const val = e.target.value
+                    if (val.startsWith('ent_')) {
+                      const id = val.slice(4)
+                      const job = entJobs.find(j => j.id === id)
+                      if (job) {
+                        updateParsed('target_job', job.title)
+                        setParsed(p => ({ ...p, target_job_post_id: id }))
+                        localStorage.setItem('target_job_post_id', id)
+                      }
+                    } else {
+                      updateParsed('target_job', val)
+                      setParsed(p => ({ ...p, target_job_post_id: '' }))
+                      localStorage.removeItem('target_job_post_id')
+                    }
+                  }}
+                  onBlur={handleJobBlur}
+                  style={{ borderColor: jobError ? 'var(--accent-rose)' : 'var(--border-light)' }}
+                >
                   <option value="">选择岗位</option>
-                  {jobOptions.map(j => <option key={j} value={j}>{j}</option>)}
+                  {systemJobs.length > 0 && (
+                    <optgroup label="系统内置职业方向模板">
+                      {systemJobs.map(j => <option key={j.title} value={j.title}>{j.title}</option>)}
+                    </optgroup>
+                  )}
+                  {entJobs.length > 0 && (
+                    <optgroup label="企业在招岗位 (已审核)">
+                      {entJobs.map(j => <option key={j.id} value={`ent_${j.id}`}>{j.title} ({j.enterprise_name})</option>)}
+                    </optgroup>
+                  )}
                 </select>
+                {jobError && <span style={{ color: 'var(--accent-rose)', fontSize: 11, marginTop: 2 }}>{jobError}</span>}
               </div>
             </div>
 
-            <h3 className="section-title" style={{ marginTop: 28 }}>技能确认</h3>
+            <h3 className="section-title" style={{ marginTop: 28, color: 'var(--text-primary)' }}>技能确认</h3>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               {Object.entries(parsed.tech_skills).length === 0 ? (
                 <p style={{ fontSize: 13, color: 'var(--text-tertiary)', width: '100%' }}>未解析到技能，请在下方手动添加</p>
@@ -463,7 +635,7 @@ export default function ProfileInput() {
               </button>
             </div>
 
-            <h3 className="section-title" style={{ marginTop: 28 }}>软技能</h3>
+            <h3 className="section-title" style={{ marginTop: 28, color: 'var(--text-primary)' }}>软技能</h3>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               {Object.entries(parsed.soft_skills).length === 0 ? (
                 <p style={{ fontSize: 13, color: 'var(--text-tertiary)', width: '100%' }}>未解析到软技能，已为你设置默认值</p>
@@ -482,13 +654,13 @@ export default function ProfileInput() {
               )}
             </div>
 
-            <h3 className="section-title" style={{ marginTop: 28 }}>项目经历</h3>
+            <h3 className="section-title" style={{ marginTop: 28, color: 'var(--text-primary)' }}>项目经历</h3>
             {(parsed.project_exp || []).length === 0 ? (
               <p style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>未解析到项目经历</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {(parsed.project_exp || []).map((proj: any, i: number) => (
-                  <div key={i} style={{ padding: '12px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)', background: 'var(--bg-hover)' }}>
+                  <div key={i} style={{ padding: '12px 16px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)', background: 'var(--bg-hover)', transition: 'background-color 0.3s' }}>
                     <div style={{ display: 'flex', gap: 12, marginBottom: 6 }}>
                       <input value={proj.name || ''} onChange={e => { const exp = [...parsed.project_exp]; exp[i] = { ...exp[i], name: e.target.value }; updateParsed('project_exp', exp) }} placeholder="项目名称" style={{ flex: 1, padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)', fontSize: 13, background: 'var(--bg-card)', color: 'var(--text-primary)' }} />
                       <input value={proj.role || ''} onChange={e => { const exp = [...parsed.project_exp]; exp[i] = { ...exp[i], role: e.target.value }; updateParsed('project_exp', exp) }} placeholder="角色" style={{ width: 120, padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)', fontSize: 13, background: 'var(--bg-card)', color: 'var(--text-primary)' }} />
@@ -499,7 +671,7 @@ export default function ProfileInput() {
               </div>
             )}
 
-            <h3 className="section-title" style={{ marginTop: 28 }}>领域知识</h3>
+            <h3 className="section-title" style={{ marginTop: 28, color: 'var(--text-primary)' }}>领域知识</h3>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               {Object.entries(parsed.domain_knowledge).length === 0 ? (
                 <p style={{ fontSize: 13, color: 'var(--text-tertiary)', width: '100%' }}>未解析到领域知识</p>
@@ -515,12 +687,31 @@ export default function ProfileInput() {
               )}
             </div>
 
+            {aiStatus === 'missing_key' && (
+              <div style={{
+                marginTop: 20,
+                padding: '12px 16px',
+                borderRadius: '12px',
+                background: 'rgba(239, 68, 68, 0.06)',
+                border: '1px solid rgba(239, 68, 68, 0.15)',
+                color: '#dc2626',
+                fontSize: '13px',
+                lineHeight: 1.6,
+              }}>
+                <strong>⚠️ AI 服务未就绪</strong><br />
+                无法开始职业诊断流程，请在后端配置并重启项目。
+              </div>
+            )}
+
             {error && <div style={{ marginTop: 20, padding: '10px 14px', borderRadius: 'var(--radius-sm)', background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', fontSize: 13, animation: 'slideUp 0.2s ease-out' }}>{error}</div>}
 
             <div style={{ display: 'flex', gap: 12, justifyContent: 'space-between', marginTop: 32 }}>
               <button className="btn btn-ghost" onClick={() => setStep('upload')}>← 重新上传</button>
-              <button className="btn btn-primary btn-lg" onClick={handleSubmit} disabled={step === 'submitting'}
-                style={{ opacity: step === 'submitting' ? 0.6 : 1, cursor: step === 'submitting' ? 'not-allowed' : 'pointer' }}>
+              <button className="btn btn-primary btn-lg" onClick={handleSubmit} disabled={step === 'submitting' || aiStatus === 'missing_key'}
+                style={{
+                  opacity: (step === 'submitting' || aiStatus === 'missing_key') ? 0.6 : 1,
+                  cursor: (step === 'submitting' || aiStatus === 'missing_key') ? 'not-allowed' : 'pointer'
+                }}>
                 {step === 'submitting' ? '提交中...' : '确认并开始诊断'}
               </button>
             </div>

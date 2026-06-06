@@ -1,169 +1,251 @@
-// 职达首页——左侧大标题排版 + 右侧抽象几何图形 + 底部功能导航条
+// 职达三端协同入口——多端导航大厅
 import { useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-
-// 五大核心功能介绍
-const features = [
-  { label: '能力画像', accent: 'var(--accent-blue)' },
-  { label: '岗位匹配', accent: 'var(--accent-teal)' },
-  { label: '成长路径', accent: 'var(--accent-amber)' },
-  { label: '职业建议', accent: 'var(--accent-violet)' },
-  { label: '动态追踪', accent: 'var(--accent-rose)' },
-]
-
-// 右侧浮动几何图形配置——半透明圆/椭圆，三种异步漂移动画
-const shapes = [
-  { size: 180, x: 160, y: 80, color: 'rgba(91,123,181,0.12)', rx: 90 },
-  { size: 120, x: 280, y: 200, color: 'rgba(90,158,143,0.10)', rx: 60 },
-  { size: 96, x: 100, y: 260, color: 'rgba(196,148,74,0.08)', rx: 48 },
-  { size: 200, x: 220, y: 20, color: 'rgba(139,126,200,0.07)', rx: 100 },
-  { size: 64, x: 340, y: 300, color: 'rgba(196,122,139,0.09)', rx: 32 },
-  { size: 140, x: 50, y: 140, color: 'rgba(91,123,181,0.06)', rx: 70 },
-]
+import { useAppStore } from '../stores/appStore'
+import ThemeToggle from '../components/shared/ThemeToggle'
+import { GraduationCap, Briefcase, Shield, Target } from 'lucide-react'
 
 export default function Home() {
   const navigate = useNavigate()
   const [hasExistingSession, setHasExistingSession] = useState(false)
+  const { hydrateFromStorage, setRole } = useAppStore()
 
   useEffect(() => {
+    hydrateFromStorage()
     const sid = localStorage.getItem('student_id')
     if (sid) setHasExistingSession(true)
   }, [])
 
+  const enterPortal = (role: 'student' | 'enterprise' | 'admin') => {
+    setRole(role)
+    if (role === 'student') {
+      const sid = localStorage.getItem('student_id')
+      if (sid) {
+        navigate('/student/dashboard')
+      } else {
+        navigate('/student/input')
+      }
+    } else if (role === 'enterprise') {
+      navigate('/enterprise')
+    } else if (role === 'admin') {
+      navigate('/admin')
+    }
+  }
+
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-page)', overflow: 'hidden' }}>
-      {/* 顶部导航栏 */}
+    <div style={{
+      minHeight: '100vh',
+      background: 'var(--bg-page)',
+      transition: 'background-color 0.3s, color 0.3s',
+      color: 'var(--text-primary)',
+      display: 'flex',
+      flexDirection: 'column',
+    }}>
+      {/* Header Navigation */}
       <nav style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '20px 56px', position: 'relative', zIndex: 100,
+        padding: '24px 56px',
       }}>
-        <div style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 700, letterSpacing: '0.06em', color: 'var(--text-primary)' }}>
-          职达
+        <div style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: 24,
+          fontWeight: 800,
+          letterSpacing: '0.04em',
+          color: 'var(--text-primary)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+        }}>
+          <Target size={24} />
+          <span>职达 AI</span>
         </div>
-        <button className="btn btn-primary" onClick={() => navigate('/input')} style={{ padding: '10px 28px', fontSize: 15, borderRadius: 'var(--radius-md)' }}>
-          开始诊断
-        </button>
+
+        <ThemeToggle />
       </nav>
 
-      {/* 主视觉区：标题 + 描述 + CTA 按钮 */}
-      <section style={{
-        display: 'flex', alignItems: 'center', minHeight: 'calc(100vh - 76px)', flexWrap: 'wrap',
-        maxWidth: 1200, margin: '0 auto', padding: '0 56px', position: 'relative',
+      {/* Main Layout */}
+      <main style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '20px 48px 80px',
       }}>
-        {/* Left: Typography */}
-        <div style={{ flex: '0 0 480px', zIndex: 10, paddingRight: 40, maxWidth: '100%' }}>
+        {/* Portal Title */}
+        <div style={{ textAlign: 'center', marginBottom: 48, animation: 'slideUp 0.6s ease-out' }}>
           <h1 style={{
-            fontFamily: 'var(--font-display)', fontSize: 'clamp(40px, 8vw, 80px)', fontWeight: 700,
-            lineHeight: 1.05, letterSpacing: '0.02em', marginBottom: 20,
-            color: 'var(--text-primary)',
-            animation: 'fadeIn 0.8s ease-out',
+            fontSize: 'clamp(28px, 4vw, 42px)',
+            fontWeight: 800,
+            lineHeight: 1.2,
+            letterSpacing: '-0.02em',
+            margin: '0 0 12px 0',
+            background: 'linear-gradient(135deg, var(--text-primary) 30%, var(--accent-teal) 100%)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
           }}>
-            你的职业<br />成长伙伴
+            职达三端协同平台
           </h1>
-
           <p style={{
-            fontSize: 17, lineHeight: 1.8, color: 'var(--text-secondary)',
-            maxWidth: 380, marginBottom: 40, fontWeight: 400,
-            animation: 'slideUp 0.8s ease-out 0.15s both',
+            fontSize: 'clamp(14px, 1.8vw, 16px)',
+            color: 'var(--text-secondary)',
+            maxWidth: 600,
+            margin: '0 auto',
+            lineHeight: 1.6,
           }}>
-            上传简历，AI 为你生成能力画像、岗位匹配与成长路径
+            基于 AI 职业成长智能体的精准校企协同闭环服务系统
           </p>
-
-          <div style={{ animation: 'slideUp 0.8s ease-out 0.3s both' }}>
-            <button
-              className="btn btn-primary btn-lg"
-              onClick={() => navigate('/input')}
-              style={{ fontSize: 17, padding: '16px 40px', borderRadius: 12 }}
-            >
-              上传简历，开始诊断
-            </button>
-          </div>
-          {hasExistingSession && (
-            <div style={{ marginTop: 12, animation: 'slideUp 0.8s ease-out 0.4s both' }}>
-              <button
-                className="btn btn-ghost"
-                onClick={() => navigate('/dashboard')}
-                style={{ fontSize: 14, padding: '10px 24px' }}
-              >
-                继续上次诊断 →
-              </button>
-            </div>
-          )}
         </div>
 
-        {/* Right: Abstract Geometry */}
+        {/* Portal Grid */}
         <div style={{
-          flex: 1, position: 'relative', height: 520, minWidth: 300,
-          animation: 'fadeIn 1s ease-out 0.3s both',
+          display: 'flex',
+          gap: 24,
+          width: '100%',
+          maxWidth: 1120,
+          flexWrap: 'wrap',
+          justifyContent: 'center',
+          animation: 'slideUp 0.8s ease-out 0.1s both',
         }}>
-          <style>{`
-            @keyframes floatShape1 { 0%,100% { transform: translate(0,0); } 33% { transform: translate(8px,-12px); } 66% { transform: translate(-4px,8px); } }
-            @keyframes floatShape2 { 0%,100% { transform: translate(0,0); } 33% { transform: translate(-10px,6px); } 66% { transform: translate(6px,-10px); } }
-            @keyframes floatShape3 { 0%,100% { transform: translate(0,0); } 33% { transform: translate(4px,-8px); } 66% { transform: translate(-8px,4px); } }
-          `}</style>
-          {shapes.map((s, i) => (
-            <div key={i} style={{
-              position: 'absolute',
-              left: s.x, top: s.y,
-              width: s.size, height: s.size,
-              borderRadius: `${s.rx}px`,
-              background: s.color,
-              animation: `floatShape${(i % 3) + 1} ${6 + i * 1.5}s ease-in-out infinite`,
-            }} />
-          ))}
-
-          {/* Central accent circle */}
-          <div style={{
-            position: 'absolute', left: 180, top: 110, width: 160, height: 160,
-            borderRadius: '50%',
-            border: '1.5px solid rgba(91,123,181,0.25)',
-            animation: 'floatShape2 8s ease-in-out infinite',
-          }} />
-          <div style={{
-            position: 'absolute', left: 196, top: 126, width: 128, height: 128,
-            borderRadius: '50%',
-            border: '1px solid rgba(90,158,143,0.2)',
-            animation: 'floatShape1 7s ease-in-out infinite 1s',
-          }} />
-          <div style={{
-            position: 'absolute', left: 212, top: 142, width: 96, height: 96,
-            borderRadius: '50%',
-            background: 'rgba(91,123,181,0.06)',
-            border: '1px solid rgba(196,148,74,0.15)',
-            animation: 'floatShape3 9s ease-in-out infinite 2s',
-          }} />
-        </div>
-      </section>
-
-      {/* 功能标签导航条，hover 变色 */}
-      <div style={{
-        display: 'flex', justifyContent: 'center', gap: 0,
-        padding: '0 56px 80px', maxWidth: 1200, margin: '0 auto',
-        animation: 'slideUp 0.8s ease-out 0.6s both',
-      }}>
-        {features.map((f, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center' }}>
-            {i > 0 && (
-              <span style={{
-                width: 4, height: 4, borderRadius: '50%',
-                background: 'var(--border-light)', margin: '0 20px',
-              }} />
-            )}
-            <a
-              href="/input"
-              style={{
-                textDecoration: 'none', color: 'var(--text-secondary)',
-                fontSize: 14, fontWeight: 500, transition: 'color 0.25s',
-                whiteSpace: 'nowrap',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.color = f.accent }}
-              onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-secondary)' }}
-            >
-              {f.label}
-            </a>
+          {/* Card 1: Student */}
+          <div
+            className="glass-panel portal-card portal-card-student"
+            onClick={() => enterPortal('student')}
+            style={{
+              flex: '1 1 320px',
+              maxWidth: 360,
+              padding: '40px 32px',
+              borderRadius: 20,
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border-light)',
+              boxShadow: 'var(--shadow-sm)',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 20,
+            }}
+          >
+            <div style={{
+              width: 56, height: 56, borderRadius: 16,
+              background: 'rgba(91, 123, 181, 0.1)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'var(--accent-blue)',
+            }}>
+              <GraduationCap size={26} />
+            </div>
+            <div>
+              <h3 style={{ fontSize: 19, fontWeight: 700, margin: '0 0 8px 0', color: 'var(--text-primary)' }}>学生端 (Student)</h3>
+              <p style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text-secondary)', margin: 0 }}>
+                上传简历，通过 AI 深度解析诊断，生成全维度能力画像，获取岗位匹配与成长学习路径，并可一键授权画像给意向招聘岗位。
+              </p>
+            </div>
+            <div style={{
+              marginTop: 'auto',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: 14,
+              fontWeight: 700,
+              color: 'var(--accent-blue)',
+            }}>
+              <span>{hasExistingSession ? '继续上次诊断' : '开始 AI 职业诊断'}</span>
+              <span>→</span>
+            </div>
           </div>
-        ))}
-      </div>
+
+          {/* Card 2: Enterprise */}
+          <div
+            className="glass-panel portal-card portal-card-enterprise"
+            onClick={() => enterPortal('enterprise')}
+            style={{
+              flex: '1 1 320px',
+              maxWidth: 360,
+              padding: '40px 32px',
+              borderRadius: 20,
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border-light)',
+              boxShadow: 'var(--shadow-sm)',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 20,
+            }}
+          >
+            <div style={{
+              width: 56, height: 56, borderRadius: 16,
+              background: 'rgba(20, 184, 166, 0.1)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'var(--accent-teal)',
+            }}>
+              <Briefcase size={26} />
+            </div>
+            <div>
+              <h3 style={{ fontSize: 19, fontWeight: 700, margin: '0 0 8px 0', color: 'var(--text-primary)' }}>企业端 (Enterprise)</h3>
+              <p style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text-secondary)', margin: 0 }}>
+                入驻学校双选网络，提交招聘岗位并由 AI 自动提取 JD 技能要求特征，查看获得已授权学生的能力画像，快速匹配精准人才。
+              </p>
+            </div>
+            <div style={{
+              marginTop: 'auto',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: 14,
+              fontWeight: 700,
+              color: 'var(--accent-teal)',
+            }}>
+              <span>进入企业工作台</span>
+              <span>→</span>
+            </div>
+          </div>
+
+          {/* Card 3: School Admin */}
+          <div
+            className="glass-panel portal-card portal-card-admin"
+            onClick={() => enterPortal('admin')}
+            style={{
+              flex: '1 1 320px',
+              maxWidth: 360,
+              padding: '40px 32px',
+              borderRadius: 20,
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border-light)',
+              boxShadow: 'var(--shadow-sm)',
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 20,
+            }}
+          >
+            <div style={{
+              width: 56, height: 56, borderRadius: 16,
+              background: 'rgba(245, 158, 11, 0.1)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'var(--accent-amber)',
+            }}>
+              <Shield size={26} />
+            </div>
+            <div>
+              <h3 style={{ fontSize: 19, fontWeight: 700, margin: '0 0 8px 0', color: 'var(--text-primary)' }}>学校后台 (Admin)</h3>
+              <p style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text-secondary)', margin: 0 }}>
+                教务管理端。审核入驻企业名单与发布的岗位详情，审核 AI 岗位能力建模合理性，统计并跟踪全校学生的诊断画像指标及进展。
+              </p>
+            </div>
+            <div style={{
+              marginTop: 'auto',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: 14,
+              fontWeight: 700,
+              color: 'var(--accent-amber)',
+            }}>
+              <span>进入教务后台</span>
+              <span>→</span>
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
   )
 }

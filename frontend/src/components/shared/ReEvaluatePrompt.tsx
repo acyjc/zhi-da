@@ -24,19 +24,19 @@ const ReEvaluatePrompt: FC<Props> = ({ visible, message, onReEvaluate, onDismiss
       left: 0,
       right: 0,
       zIndex: 100,
-      animation: 'slideUp 0.4s ease-out forwards',
+      animation: 'slideUpFull 0.4s ease-out forwards',
     }}>
-      <style>{`@keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}`}</style>
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '14px 24px',
         background: 'var(--bg-hover)',
         borderTop: '1px solid var(--border-light)',
-        boxShadow: '0 -4px 24px rgba(0,0,0,0.3)',
+        boxShadow: 'var(--shadow-lg)',
         maxWidth: 1200,
         margin: '0 auto',
         borderTopLeftRadius: 12,
         borderTopRightRadius: 12,
+        transition: 'background-color 0.3s, border-color 0.3s',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent-amber)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

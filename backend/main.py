@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config.settings import CORS_ORIGINS
 from db.database import init_db
-from api.routes import student, job, diagnosis, progress, export, growth, resume, chat
+from api.routes import student, job, diagnosis, progress, export, growth, resume, chat, student_ext, enterprise, admin
 
 
 # 应用启动时自动创建数据库表
@@ -36,9 +36,18 @@ app.include_router(export.router)
 app.include_router(growth.router)
 app.include_router(resume.router)
 app.include_router(chat.router)
+app.include_router(student_ext.router)
+app.include_router(enterprise.router)
+app.include_router(admin.router)
 
+
+from config.settings import LLM_API_KEY
 
 # 健康检查端点
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "service": "TalentPath"}
+    return {
+        "status": "ok",
+        "service": "TalentPath",
+        "ai_status": "configured" if bool(LLM_API_KEY.strip()) else "missing_key"
+    }

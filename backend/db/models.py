@@ -86,3 +86,59 @@ class GrowthRecord(Base):
     before_snapshot = Column(JSON, default=dict)
     after_snapshot = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# 企业合作信息表
+class Enterprise(Base):
+    __tablename__ = "enterprises"
+    id = Column(String, primary_key=True, default=gen_id)
+    name = Column(String, nullable=False)
+    industry = Column(String, default="")
+    description = Column(Text, default="")
+    contact_name = Column(String, default="")
+    contact_email = Column(String, default="")
+    status = Column(String, default="active")  # pending / active / disabled
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# 企业发布的在招岗位表
+class JobPost(Base):
+    __tablename__ = "job_posts"
+    id = Column(String, primary_key=True, default=gen_id)
+    enterprise_id = Column(String, ForeignKey("enterprises.id"), nullable=False)
+    title = Column(String, nullable=False)
+    category = Column(String, default="")
+    description = Column(Text, default="")
+    requirements_text = Column(Text, default="")
+    status = Column(String, default="pending_review")  # draft / pending_review / approved / rejected / disabled
+    review_reason = Column(Text, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# 岗位能力匹配特征模型
+class JobAbilityModel(Base):
+    __tablename__ = "job_ability_models"
+    id = Column(String, primary_key=True, default=gen_id)
+    job_post_id = Column(String, ForeignKey("job_posts.id"), nullable=False)
+    tech_skills = Column(JSON, default=dict)
+    soft_skills = Column(JSON, default=dict)
+    domain_knowledge = Column(JSON, default=dict)
+    project_exp = Column(JSON, default=list)
+    weight_config = Column(JSON, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# 学生授权诊断给企业岗位记录表
+class StudentAuthorization(Base):
+    __tablename__ = "student_authorizations"
+    id = Column(String, primary_key=True, default=gen_id)
+    student_id = Column(String, ForeignKey("students.id"), nullable=False)
+    enterprise_id = Column(String, ForeignKey("enterprises.id"), nullable=False)
+    job_post_id = Column(String, ForeignKey("job_posts.id"), nullable=False)
+    diagnosis_id = Column(String, ForeignKey("diagnosis_results.id"), nullable=False)
+    status = Column(String, default="active")  # active / revoked
+    created_at = Column(DateTime, default=datetime.utcnow)
+    revoked_at = Column(DateTime, nullable=True)

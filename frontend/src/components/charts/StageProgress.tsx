@@ -1,4 +1,6 @@
 // 纯 CSS 垂直步骤进度条——已完成/进行中(脉冲动画)/未开始三种状态
+import { useAppStore } from '../../stores/appStore'
+
 interface PhaseData {
   goal: string
   weeks: number
@@ -12,7 +14,7 @@ interface StageProgressProps {
 
 const containerStyle: React.CSSProperties = {
   width: '100%',
-  background: '#fafaf8',
+  background: 'transparent',
   borderRadius: 12,
   padding: '20px 24px',
   boxSizing: 'border-box',
@@ -24,28 +26,31 @@ const nodeSize = 16
 const lineWidth = 2
 
 function getNodeColor(completed: boolean, current: boolean): string {
-  if (completed) return '#4ade80'
-  if (current) return '#5b7bb5'
-  return '#e8e5df'
+  if (completed) return 'var(--accent-green)'
+  if (current) return 'var(--accent-blue)'
+  return 'var(--border-light)'
 }
 
 function getNodeBorder(completed: boolean, current: boolean): string {
-  if (completed) return '#4ade80'
-  if (current) return '#5b7bb5'
-  return '#e8e5df'
+  if (completed) return 'var(--accent-green)'
+  if (current) return 'var(--accent-blue)'
+  return 'var(--border-light)'
 }
 
 function getLineColor(completed: boolean): string {
-  return completed ? '#4ade80' : '#e8e5df'
+  return completed ? 'var(--accent-green)' : 'var(--border-light)'
 }
 
 function getTitleColor(completed: boolean, current: boolean): string {
-  if (completed) return '#4ade80'
-  if (current) return '#5b7bb5'
-  return '#8892b0'
+  if (completed) return 'var(--accent-green)'
+  if (current) return 'var(--accent-blue)'
+  return 'var(--text-secondary)'
 }
 
 export default function StageProgress({ phases }: StageProgressProps) {
+  const { theme } = useAppStore()
+  const isDark = theme === 'dark'
+
   return (
     <div style={containerStyle}>
       {phases.map((phase, index) => {
@@ -97,7 +102,7 @@ export default function StageProgress({ phases }: StageProgressProps) {
                   >
                     <path
                       d="M4 8l3 3 5-5"
-                      stroke="#fafaf8"
+                      stroke={isDark ? '#16181d' : '#f8f7f4'}
                       strokeWidth="2"
                       fill="none"
                       strokeLinecap="round"
@@ -155,9 +160,9 @@ export default function StageProgress({ phases }: StageProgressProps) {
               <span
                 style={{
                   fontSize: 12,
-                  color: '#6e6e73',
+                  color: 'var(--text-tertiary)',
                   marginTop: 2,
-                  fontFamily: "'Rajdhani', sans-serif",
+                  fontFamily: "var(--font-display)",
                 }}
               >
                 {phase.weeks} 周
