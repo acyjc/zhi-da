@@ -1,7 +1,10 @@
 # PipelineRunner 状态驱动执行器——按序执行 PipelineStep 列表，支持进度回调和异常降级
+import logging
 import time
 from typing import Callable
 from .step import PipelineStep, PipelineState
+
+logger = logging.getLogger(__name__)
 
 
 # Pipeline 运行引擎
@@ -21,6 +24,7 @@ class PipelineRunner:
                 state = await step.execute(state)
                 state.metadata[f"{step.name}_duration"] = time.time() - step_start
             except Exception as e:
+                logger.error(f"Pipeline step '{step.name}' failed: {e}", exc_info=True)
                 state.add_error(f"{step.name}: {str(e)}")
                 if self.fallback_handler:
                     await self.fallback_handler(step.name, state, e)

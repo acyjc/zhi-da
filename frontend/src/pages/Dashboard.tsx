@@ -26,6 +26,19 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'growth', label: '成长追踪' },
 ]
 
+// 后端 dimension_scores 使用简称(key: tech/project/soft/domain)，前端用全称
+// 建立映射关系，兼容两种 key 格式
+const DIM_KEY_MAP: Record<string, string> = {
+  tech: 'tech_skills',
+  project: 'project_exp',
+  soft: 'soft_skills',
+  domain: 'domain_knowledge',
+  tech_skills: 'tech_skills',
+  project_exp: 'project_exp',
+  soft_skills: 'soft_skills',
+  domain_knowledge: 'domain_knowledge',
+}
+
 // 从后端返回数据构建前端需要的 AbilityProfile 结构
 const buildProfile = (result: any, studentData?: any): AbilityProfile => {
   if (result?.ability_profile) return result.ability_profile
@@ -33,14 +46,38 @@ const buildProfile = (result: any, studentData?: any): AbilityProfile => {
 
   interface SkillItem { name: string; score: number; level: string }
 
-  const makeDim = (key: string): AbilityDimension => {
-    const score = result?.dimension_scores?.[key] ?? 0
-    const skills = studentData?.[key] ?? {}
-    const subItems: SkillItem[] = Object.entries(skills).map(([name, val]) => ({
-      name,
-      score: typeof val === 'number' ? Math.round(val) : 60,
-      level: typeof val === 'number' ? (val >= 80 ? '精通' : val >= 60 ? '熟练' : '了解') : '了解',
-    }))
+  // 先从 dimension_scores/mock_scores 中提取各维度分值(可能是 0-1 小数或 0-100 整数)
+  const resolveDimScore = (dimKey: string): number => {
+    const scores = result?.dimension_scores ?? result?.mock_scores ?? {}
+    // 尝试短 key 和长 key
+    const shortKey = Object.keys(DIM_KEY_MAP).find(k => DIM_KEY_MAP[k] === dimKey && k.length <= 8) ?? dimKey
+    const val = scores[dimKey] ?? scores[shortKey] ?? 0
+    // 如果是 0-1 小数，转为 0-1 统一存储(ProfileTab 中乘以 100 显示)
+    return typeof val === 'number' ? val : 0
+  }
+
+  const makeDim = (dimKey: string): AbilityDimension => {
+    const score = resolveDimScore(dimKey)
+    const rawSkills = studentData?.[dimKey]
+
+    let subItems: SkillItem[] = []
+
+    if (Array.isArray(rawSkills)) {
+      // project_exp 是数组，每条记录作为一个子项
+      subItems = (rawSkills as any[]).map((item: any) => ({
+        name: item.name ?? item.role ?? '项目',
+        score: 60,
+        level: '了解',
+      }))
+    } else if (rawSkills && typeof rawSkills === 'object') {
+      // tech_skills/soft_skills/domain_knowledge 是 {name: score} 字典
+      subItems = Object.entries(rawSkills as Record<string, number>).map(([name, val]) => ({
+        name,
+        score: typeof val === 'number' ? Math.round(val) : 60,
+        level: typeof val === 'number' ? (val >= 80 ? '精通' : val >= 60 ? '熟练' : '了解') : '了解',
+      }))
+    }
+
     return { weight: score, sub_items: subItems }
   }
 
@@ -110,14 +147,28 @@ export default function Dashboard() {
 
       setSseSteps(staticSseSteps.map(s => ({ ...s, status: 'finish' })))
 
+      // 将后端 dimension_scores/dimension_changes 的短 key 映射为前端长 key
+      const rawScores = result.dimension_scores ?? {}
+      const rawChanges = result.dimension_changes ?? {}
+      const dimension_scores: Record<string, number> = {}
+      const dimension_changes: Record<string, number> = {}
+      for (const [k, v] of Object.entries(rawScores)) {
+        const mapped = DIM_KEY_MAP[k] ?? k
+        dimension_scores[mapped] = v as number
+      }
+      for (const [k, v] of Object.entries(rawChanges)) {
+        const mapped = DIM_KEY_MAP[k] ?? k
+        dimension_changes[mapped] = v as number
+      }
+
       const diagResult: DiagnosisResult = {
         id: result.id || result.diagnosis_id || '',
         student_id: student.id,
         version: result.version ?? 1,
         diagnosis_type: result.diagnosis_type || 'full',
         match_score: result.match_score ?? 0,
-        dimension_scores: result.dimension_scores ?? {},
-        dimension_changes: result.dimension_changes ?? {},
+        dimension_scores,
+        dimension_changes,
         gap_details: result.gap_details ?? [],
         top5_jobs: result.top5_jobs ?? [],
         growth_path: result.growth_path ?? { phases: [] },
@@ -166,14 +217,28 @@ export default function Dashboard() {
 
       setSseSteps(staticSseSteps.map(s => ({ ...s, status: 'finish' })))
 
+      // 将后端 dimension_scores/dimension_changes 的短 key 映射为前端长 key
+      const rawScores2 = result.dimension_scores ?? {}
+      const rawChanges2 = result.dimension_changes ?? {}
+      const dimension_scores2: Record<string, number> = {}
+      const dimension_changes2: Record<string, number> = {}
+      for (const [k, v] of Object.entries(rawScores2)) {
+        const mapped = DIM_KEY_MAP[k] ?? k
+        dimension_scores2[mapped] = v as number
+      }
+      for (const [k, v] of Object.entries(rawChanges2)) {
+        const mapped = DIM_KEY_MAP[k] ?? k
+        dimension_changes2[mapped] = v as number
+      }
+
       const diagResult: DiagnosisResult = {
         id: result.id || result.diagnosis_id || '',
         student_id: student.id,
         version: result.version ?? (diagnosisResult ? diagnosisResult.version + 1 : 1),
         diagnosis_type: result.diagnosis_type || 're_evaluate',
         match_score: result.match_score ?? 0,
-        dimension_scores: result.dimension_scores ?? {},
-        dimension_changes: result.dimension_changes ?? {},
+        dimension_scores: dimension_scores2,
+        dimension_changes: dimension_changes2,
         gap_details: result.gap_details ?? [],
         top5_jobs: result.top5_jobs ?? [],
         growth_path: result.growth_path ?? { phases: [] },
