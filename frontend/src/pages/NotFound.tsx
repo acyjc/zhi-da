@@ -14,7 +14,7 @@ export default function NotFound() {
       transition: 'background-color 0.3s',
     }}>
       <div style={{ textAlign: 'center', maxWidth: 400 }}>
-        <div style={{ fontSize: 72, fontWeight: 800, color: 'var(--accent-blue)', fontFamily: 'var(--font-mono)', lineHeight: 1 }}>
+        <div style={{ fontSize: 72, fontWeight: 800, color: 'var(--accent-primary)', fontFamily: 'var(--font-mono)', lineHeight: 1 }}>
           404
         </div>
         <div style={{
@@ -31,13 +31,13 @@ export default function NotFound() {
           style={{
             marginTop: 24,
             padding: '10px 32px', borderRadius: 8, border: 'none',
-            background: 'var(--accent-blue)', color: '#fff',
+            background: 'var(--accent-primary)', color: '#fff',
             cursor: 'pointer', fontSize: 14, fontWeight: 600,
             fontFamily: 'var(--font-display)', letterSpacing: '0.5px',
             transition: 'all 0.25s ease',
           }}
           onMouseEnter={e => {
-            e.currentTarget.style.boxShadow = '0 0 20px rgba(91,156,245,0.4)'
+            e.currentTarget.style.boxShadow = '0 0 20px rgba(0,113,227,0.4)'
             e.currentTarget.style.transform = 'scale(1.03)'
           }}
           onMouseLeave={e => {

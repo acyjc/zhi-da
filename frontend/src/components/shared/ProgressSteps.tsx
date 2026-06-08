@@ -12,9 +12,9 @@ interface Props {
 
 const statusColors: Record<Step['status'], { bg: string; border: string; text: string }> = {
   wait: { bg: 'transparent', border: 'var(--text-tertiary)', text: 'var(--text-tertiary)' },
-  process: { bg: 'rgba(91,123,181,0.15)', border: 'var(--accent-blue)', text: 'var(--accent-blue)' },
-  finish: { bg: 'rgba(107,168,122,0.15)', border: 'var(--accent-green)', text: 'var(--accent-green)' },
-  error: { bg: 'rgba(196,122,139,0.15)', border: 'var(--accent-rose)', text: 'var(--accent-rose)' },
+  process: { bg: 'rgba(0,113,227,0.15)', border: 'var(--accent-primary)', text: 'var(--accent-primary)' },
+  finish: { bg: 'rgba(107,168,122,0.15)', border: 'var(--accent-success)', text: 'var(--accent-success)' },
+  error: { bg: 'rgba(255,59,48,0.15)', border: 'var(--accent-danger)', text: 'var(--accent-danger)' },
 }
 
 const StatusIcon: FC<{ status: Step['status'] }> = ({ status }) => {
@@ -36,7 +36,7 @@ const StatusIcon: FC<{ status: Step['status'] }> = ({ status }) => {
 }
 
 const ConnectLine: FC<{ status: Exclude<Step['status'], 'error'> }> = ({ status }) => {
-  const bg = status === 'finish' ? 'var(--accent-green)' : status === 'process' ? 'var(--accent-blue)' : 'var(--text-tertiary)'
+  const bg = status === 'finish' ? 'var(--accent-success)' : status === 'process' ? 'var(--accent-primary)' : 'var(--text-tertiary)'
   return (
     <div style={{
       flex: 1, height: 2, minWidth: 24, margin: '0 4px',

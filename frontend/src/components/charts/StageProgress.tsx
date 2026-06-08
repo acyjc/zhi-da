@@ -27,13 +27,13 @@ const lineWidth = 2
 
 function getNodeColor(completed: boolean, current: boolean): string {
   if (completed) return 'var(--accent-green)'
-  if (current) return 'var(--accent-blue)'
+  if (current) return 'var(--accent-primary)'
   return 'var(--border-light)'
 }
 
 function getNodeBorder(completed: boolean, current: boolean): string {
   if (completed) return 'var(--accent-green)'
-  if (current) return 'var(--accent-blue)'
+  if (current) return 'var(--accent-primary)'
   return 'var(--border-light)'
 }
 
@@ -43,7 +43,7 @@ function getLineColor(completed: boolean): string {
 
 function getTitleColor(completed: boolean, current: boolean): string {
   if (completed) return 'var(--accent-green)'
-  if (current) return 'var(--accent-blue)'
+  if (current) return 'var(--accent-primary)'
   return 'var(--text-secondary)'
 }
 

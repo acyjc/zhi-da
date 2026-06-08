@@ -1,17 +1,26 @@
 // 成长追踪 Tab——ECharts 成长趋势图 + 版本对比选择器 + 诊断历史时间线
-import { useState, type FC } from 'react'
+import React, { useState, type FC } from 'react'
 import type { DiagnosisResult } from '../../types'
-import GrowthTrend from '../charts/GrowthTrend'
+
+const GrowthTrend = React.lazy(() => import('../charts/GrowthTrend'))
 
 interface Props {
   history: DiagnosisResult[]
 }
 
 const dimLabels: Record<string, string> = {
-  tech_skills: '技术能力',
+  tech_skills: '技术技能',
+  tech: '技术技能',
   project_exp: '项目经验',
+  project: '项目经验',
+  academic_foundation: '学业基础',
+  academic: '学业基础',
+  domain_knowledge: '领域认知',
+  domain: '领域认知',
+  soft_skill_evidence: '软技能证据',
+  soft_evidence: '软技能证据',
   soft_skills: '软技能',
-  domain_knowledge: '领域知识',
+  soft: '软技能',
 }
 
 const GrowthTab: FC<Props> = ({ history }) => {
@@ -33,15 +42,15 @@ const GrowthTab: FC<Props> = ({ history }) => {
   const verB = sorted.find(d => d.version === compareB)
 
   const dims = verA && verB
-    ? Object.entries(verA.dimension_scores).map(([key, valA]) => ({
-        key, valA, valB: verB.dimension_scores[key] ?? 0,
-        change: valA - (verB.dimension_scores[key] ?? 0),
+    ? Object.entries(verA.dimension_scores || {}).map(([key, valA]) => ({
+        key, valA, valB: (verB.dimension_scores || {})[key] ?? 0,
+        change: valA - ((verB.dimension_scores || {})[key] ?? 0),
       }))
     : []
 
   const trendData = [...history]
     .sort((a, b) => a.version - b.version)
-    .map(d => ({ date: `V${d.version}`, scores: d.dimension_scores }))
+    .map(d => ({ date: `V${d.version}`, scores: d.dimension_scores || {} }))
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
@@ -51,7 +60,9 @@ const GrowthTab: FC<Props> = ({ history }) => {
           成长趋势
         </div>
         <div style={{ width: '100%', height: 280 }}>
-          <GrowthTrend history={trendData} />
+          <React.Suspense fallback={<div style={{ textAlign: 'center', padding: 40, color: 'var(--text-tertiary)', fontSize: 13 }}>加载图表中...</div>}>
+            <GrowthTrend history={trendData} />
+          </React.Suspense>
         </div>
       </div>
 
@@ -71,7 +82,7 @@ const GrowthTab: FC<Props> = ({ history }) => {
               <option key={d.version} value={d.version}>V{d.version} - {(d.match_score * 100).toFixed(0)}% - {d.trigger_event || '初始诊断'}</option>
             ))}
           </select>
-          <span style={{ color: 'var(--text-tertiary)', fontSize: 14, fontWeight: 700 }}>VS</span>
+          <span style={{ color: 'var(--text-tertiary)', fontSize: 14, fontWeight: 700 }}>对比</span>
           <select
             value={compareB ?? ''}
             onChange={e => setCompareB(e.target.value ? Number(e.target.value) : null)}
@@ -85,7 +96,7 @@ const GrowthTab: FC<Props> = ({ history }) => {
         </div>
 
         {verA && verB && verA.version === verB.version && (
-          <div style={{ textAlign: 'center', padding: 16, color: 'var(--accent-amber)', fontSize: 13, background: 'rgba(196,148,74,0.08)', borderRadius: 8, border: '1px solid rgba(196,148,74,0.2)' }}>
+          <div style={{ textAlign: 'center', padding: 16, color: 'var(--accent-warning)', fontSize: 13, background: 'rgba(255,149,0,0.08)', borderRadius: 8, border: '1px solid rgba(255,149,0,0.2)' }}>
             请选择不同的版本进行对比
           </div>
         )}
@@ -99,7 +110,7 @@ const GrowthTab: FC<Props> = ({ history }) => {
                 <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>{dimLabels[dim.key] || dim.key}</span>
                 <span style={{ textAlign: 'center', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{(dim.valA * 100).toFixed(0)}%</span>
                 <span style={{ textAlign: 'center', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{(dim.valB * 100).toFixed(0)}%</span>
-                <span style={{ textAlign: 'center', fontFamily: 'var(--font-mono)', fontWeight: 600, color: dim.change > 0 ? 'var(--accent-green)' : dim.change < 0 ? 'var(--accent-rose)' : 'var(--text-tertiary)' }}>
+                <span style={{ textAlign: 'center', fontFamily: 'var(--font-mono)', fontWeight: 600, color: dim.change > 0 ? 'var(--accent-success)' : dim.change < 0 ? 'var(--accent-danger)' : 'var(--text-tertiary)' }}>
                   {dim.change > 0 ? '+' : ''}{(dim.change * 100).toFixed(0)}%
                 </span>
               </div>
@@ -116,13 +127,13 @@ const GrowthTab: FC<Props> = ({ history }) => {
         <div style={{ fontSize: 12, color: 'var(--text-tertiary)', letterSpacing: '1px', textTransform: 'uppercase' }}>诊断历史 ({history.length})</div>
         {sorted.map((item, i) => (
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px', borderRadius: 8, border: '1px solid var(--border-light)', background: 'var(--bg-card)' }}>
-            <div style={{ width: 10, height: 10, borderRadius: '50%', background: i === 0 ? 'var(--accent-blue)' : 'var(--border-light)', flexShrink: 0 }} />
+            <div style={{ width: 10, height: 10, borderRadius: '50%', background: i === 0 ? 'var(--accent-primary)' : 'var(--border-light)', flexShrink: 0 }} />
             <div style={{ flex: 1 }}>
               <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>V{item.version}</span>
               <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', marginLeft: 8 }}>{item.created_at?.slice(0, 10) || ''}</span>
               {item.trigger_event && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>{item.trigger_event}</div>}
             </div>
-            <div style={{ fontSize: 20, fontFamily: "Rajdhani, sans-serif", fontWeight: 700, color: item.match_score >= 0.7 ? 'var(--accent-green)' : item.match_score >= 0.4 ? 'var(--accent-amber)' : 'var(--accent-rose)' }}>
+            <div style={{ fontSize: 20, fontFamily: "var(--font-display)", fontWeight: 700, color: item.match_score >= 0.7 ? 'var(--accent-success)' : item.match_score >= 0.4 ? 'var(--accent-warning)' : 'var(--accent-danger)' }}>
               {(item.match_score * 100).toFixed(0)}%
             </div>
           </div>

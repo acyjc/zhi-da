@@ -10,9 +10,9 @@ interface AppState {
   progress: { stage: string; progress: number; message: string }
   triggeredReEvaluate: boolean
   theme: 'light' | 'dark'
-  role: 'student' | 'enterprise' | 'admin'
-  mockStudentId: string
-  mockEnterpriseId: string
+  role: 'student' | 'enterprise' | 'admin' | null
+  currentStudentId: string | number
+  currentEnterpriseId: string
   setStudent: (student: Student | null) => void
   setJobs: (jobs: Job[]) => void
   setDiagnosisResult: (result: DiagnosisResult | null) => void
@@ -21,9 +21,10 @@ interface AppState {
   setProgress: (progress: { stage: string; progress: number; message: string }) => void
   setTriggeredReEvaluate: (triggered: boolean) => void
   setTheme: (theme: 'light' | 'dark') => void
-  setRole: (role: 'student' | 'enterprise' | 'admin') => void
-  setMockStudentId: (id: string) => void
-  setMockEnterpriseId: (id: string) => void
+  setRole: (role: 'student' | 'enterprise' | 'admin' | null) => void
+  setCurrentStudentId: (id: string | number) => void
+  setCurrentEnterpriseId: (id: string) => void
+  logout: () => void
   hydrateFromStorage: () => void
 }
 
@@ -36,20 +37,20 @@ export const useAppStore = create<AppState>((set, get) => ({
   progress: { stage: '', progress: 0, message: '' },
   triggeredReEvaluate: false,
   theme: 'light',
-  role: 'student',
-  mockStudentId: '1',
-  mockEnterpriseId: '1',
+  role: null,
+  currentStudentId: '',
+  currentEnterpriseId: '',
   setStudent: (student) => {
     if (student) {
-      localStorage.setItem('student_id', student.id)
+      localStorage.setItem('student_id', String(student.id))
+      localStorage.setItem('zhida_student_id', String(student.id))
       localStorage.setItem('student_data', JSON.stringify(student))
-      // Align mockStudentId when student changes
-      localStorage.setItem('mock_student_id', student.id)
-      set({ student, mockStudentId: student.id })
+      set({ student, currentStudentId: student.id })
     } else {
       localStorage.removeItem('student_id')
+      localStorage.removeItem('zhida_student_id')
       localStorage.removeItem('student_data')
-      set({ student })
+      set({ student, currentStudentId: '' })
     }
   },
   setJobs: (jobs) => set({ jobs }),
@@ -65,16 +66,34 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ theme })
   },
   setRole: (role) => {
-    localStorage.setItem('mock_role', role)
+    if (role) {
+      localStorage.setItem('zhida_role', role)
+    } else {
+      localStorage.removeItem('zhida_role')
+    }
     set({ role })
   },
-  setMockStudentId: (id) => {
-    localStorage.setItem('mock_student_id', id)
-    set({ mockStudentId: id })
+  setCurrentStudentId: (id) => {
+    localStorage.setItem('zhida_student_id', String(id))
+    localStorage.setItem('student_id', String(id))
+    set({ currentStudentId: id })
   },
-  setMockEnterpriseId: (id) => {
-    localStorage.setItem('mock_enterprise_id', id)
-    set({ mockEnterpriseId: id })
+  setCurrentEnterpriseId: (id) => {
+    localStorage.setItem('zhida_enterprise_id', id)
+    set({ currentEnterpriseId: id })
+  },
+  logout: () => {
+    localStorage.removeItem('zhida_token')
+    localStorage.removeItem('zhida_role')
+    localStorage.removeItem('zhida_student_id')
+    localStorage.removeItem('zhida_enterprise_id')
+    localStorage.removeItem('zhida_admin_account')
+    localStorage.removeItem('student_id')
+    localStorage.removeItem('student_data')
+    localStorage.removeItem('mock_role')
+    localStorage.removeItem('mock_student_id')
+    localStorage.removeItem('mock_enterprise_id')
+    set({ role: null, currentStudentId: '', currentEnterpriseId: '' })
   },
   hydrateFromStorage: () => {
     // Restore theme
@@ -96,20 +115,20 @@ export const useAppStore = create<AppState>((set, get) => ({
         localStorage.removeItem('student_data')
       }
     }
-    // Restore role & mock IDs
-    const storedRole = localStorage.getItem('mock_role') as 'student' | 'enterprise' | 'admin' | null
+    // Restore role and IDs (no legacy mock_* fallback).
+    const storedRole = localStorage.getItem('zhida_role') as 'student' | 'enterprise' | 'admin' | null
     if (storedRole) {
       set({ role: storedRole })
     }
-    const storedStudentId = localStorage.getItem('mock_student_id')
+    const storedStudentId = localStorage.getItem('zhida_student_id') || localStorage.getItem('student_id')
     if (storedStudentId) {
-      set({ mockStudentId: storedStudentId })
+      set({ currentStudentId: storedStudentId })
     } else if (get().student) {
-      set({ mockStudentId: get().student!.id })
+      set({ currentStudentId: get().student!.id })
     }
-    const storedEnterpriseId = localStorage.getItem('mock_enterprise_id')
+    const storedEnterpriseId = localStorage.getItem('zhida_enterprise_id')
     if (storedEnterpriseId) {
-      set({ mockEnterpriseId: storedEnterpriseId })
+      set({ currentEnterpriseId: storedEnterpriseId })
     }
   },
 }))

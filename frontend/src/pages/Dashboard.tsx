@@ -1,33 +1,32 @@
-// 一站式诊断看板——SSE 流式诊断 + 6 个 Tab 结果展示 + 侧边导航 + 导出工具
+// 一站式诊断看板——SSE 流式诊断 + 7 个 Tab 结果展示 + Bento 玻璃拟态布局 + 导出工具
 import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '../stores/appStore'
-import { startDiagnosis, reEvaluate, getDiagnosisHistory, getStudent } from '../services/api'
-import type { DiagnosisResult, AbilityProfile, AbilityDimension } from '../types'
+import { getDiagnosisHistory, getStudent, runStudentAgentStream } from '../services/api'
+import type { DiagnosisResult, AbilityProfile, AbilityDimension, NextAction } from '../types'
 import ProgressSteps from '../components/shared/ProgressSteps'
 import ReEvaluatePrompt from '../components/shared/ReEvaluatePrompt'
 import ExportToolbar from '../components/export/ExportToolbar'
-import ProfileTab from '../components/diagnosis/ProfileTab'
-import MatchTab from '../components/diagnosis/MatchTab'
-import PathTab from '../components/diagnosis/PathTab'
-import AdviceTab from '../components/diagnosis/AdviceTab'
-import RecommendTab from '../components/diagnosis/RecommendTab'
-import GrowthTab from '../components/diagnosis/GrowthTab'
-import AuthorizationTab from '../components/diagnosis/AuthorizationTab'
+import OverviewTab from './Dashboard/OverviewTab'
+import DiagnosisTab from './Dashboard/DiagnosisTab'
+import TasksTab from './Dashboard/TasksTab'
+import AuthorizationPageTab from './Dashboard/AuthorizationPageTab'
+import EmptyState from '../components/shared/EmptyState'
 import ThemeToggle from '../components/shared/ThemeToggle'
-import { Scan, Cpu, Target, Map, Lightbulb } from 'lucide-react'
+import AIStatusBadge from '../components/shared/AIStatusBadge'
+import AIReasoningPanel from '../components/shared/AIReasoningPanel'
+import ConversationPanel from '../components/shared/ConversationPanel'
+import { Scan, Cpu, Target, Map, Lightbulb, Sparkles } from 'lucide-react'
+import { toast } from '../utils/toast'
 
-type TabKey = 'profile' | 'match' | 'path' | 'advice' | 'recommend' | 'growth' | 'authorization'
+type TabKey = 'overview' | 'diagnosis' | 'tasks' | 'authorization'
 
-// 七个分析维度的 Tab 定义
+// 四个主入口 Tab 定义（成长闭环）
 const TABS: { key: TabKey; label: string }[] = [
-  { key: 'profile', label: '能力画像' },
-  { key: 'match', label: '岗位匹配' },
-  { key: 'path', label: '成长路径' },
-  { key: 'advice', label: '职业建议' },
-  { key: 'recommend', label: '就业推荐' },
-  { key: 'growth', label: '成长追踪' },
-  { key: 'authorization', label: '授权管理' },
+  { key: 'overview', label: '成长总览' },
+  { key: 'diagnosis', label: '诊断解释' },
+  { key: 'tasks', label: '成长任务' },
+  { key: 'authorization', label: '岗位授权' },
 ]
 
 // 后端 dimension_scores 使用简称(key: tech/project/soft/domain)，前端用全称
@@ -35,23 +34,41 @@ const DIM_KEY_MAP: Record<string, string> = {
   tech: 'tech_skills',
   project: 'project_exp',
   soft: 'soft_skills',
+  academic: 'academic_foundation',
   domain: 'domain_knowledge',
+  soft_evidence: 'soft_skill_evidence',
   tech_skills: 'tech_skills',
   project_exp: 'project_exp',
   soft_skills: 'soft_skills',
+  academic_foundation: 'academic_foundation',
   domain_knowledge: 'domain_knowledge',
+  soft_skill_evidence: 'soft_skill_evidence',
 }
 
 // 从后端返回数据构建前端需要的 AbilityProfile 结构
 const buildProfile = (result: any, studentData?: any): AbilityProfile => {
-  if (result?.ability_profile) return result.ability_profile
-  if (result?.profile) return result.profile
+  if (result?.ability_profile || result?.profile) {
+    const rawProfile = result.ability_profile || result.profile
+    // ability_profile 中的 weight 是相对重要性权重（sum≈1.0），不是能力得分
+    // 需要用 dimension_scores 覆盖 weight，确保雷达图展示的是实际能力分数
+    const scores = result?.dimension_scores ?? {}
+    const patched: any = {}
+    for (const [key, value] of Object.entries(rawProfile as Record<string, any>)) {
+      const mappedKey = DIM_KEY_MAP[key] ?? key
+      const dimScore = scores[key] ?? scores[mappedKey]
+      patched[key] = {
+        ...(value as any),
+        weight: typeof dimScore === 'number' ? dimScore : (value as any)?.weight ?? 0,
+      }
+    }
+    return patched
+  }
 
   interface SkillItem { name: string; score: number; level: string }
 
   const resolveDimScore = (dimKey: string): number => {
-    const scores = result?.dimension_scores ?? result?.mock_scores ?? {}
-    const shortKey = Object.keys(DIM_KEY_MAP).find(k => DIM_KEY_MAP[k] === dimKey && k.length <= 8) ?? dimKey
+    const scores = result?.dimension_scores ?? {}
+    const shortKey = Object.keys(DIM_KEY_MAP).find(k => DIM_KEY_MAP[k] === dimKey && (k.length <= 8 || k === 'soft_evidence')) ?? dimKey
     const val = scores[dimKey] ?? scores[shortKey] ?? 0
     return typeof val === 'number' ? val : 0
   }
@@ -62,7 +79,24 @@ const buildProfile = (result: any, studentData?: any): AbilityProfile => {
 
     let subItems: SkillItem[] = []
 
-    if (Array.isArray(rawSkills)) {
+    if (dimKey === 'academic_foundation') {
+      const courses = rawSkills?.core_courses
+      if (Array.isArray(courses)) {
+        subItems = courses.map((c: any) => ({
+          name: c.name || '',
+          score: typeof c.score === 'number' ? c.score : 60,
+          level: typeof c.score === 'number' ? (c.score >= 85 ? '优秀' : c.score >= 75 ? '良好' : '及格') : '了解',
+        }))
+      }
+    } else if (dimKey === 'soft_skill_evidence') {
+      if (rawSkills && typeof rawSkills === 'object') {
+        subItems = Object.entries(rawSkills as Record<string, any>).map(([name, details]) => ({
+          name: name === 'teamwork' ? '团队协作' : name === 'communication' ? '沟通表达' : name === 'ownership' ? '主动性' : name,
+          score: typeof details?.normalized_score === 'number' ? details.normalized_score : 60,
+          level: details?.level || 'weak',
+        }))
+      }
+    } else if (Array.isArray(rawSkills)) {
       subItems = (rawSkills as any[]).map((item: any) => ({
         name: item.name ?? item.role ?? '项目',
         score: 60,
@@ -82,9 +116,81 @@ const buildProfile = (result: any, studentData?: any): AbilityProfile => {
   return {
     tech_skills: makeDim('tech_skills'),
     project_exp: makeDim('project_exp'),
-    soft_skills: makeDim('soft_skills'),
+    academic_foundation: makeDim('academic_foundation'),
     domain_knowledge: makeDim('domain_knowledge'),
+    soft_skill_evidence: makeDim('soft_skill_evidence'),
   }
+}
+
+// ─── SSE 共享工具函数 ───────────────────────────────
+
+/** 根据 Agent Stream 进度回调更新 SSE 步骤状态和全局进度 */
+const makeSseProgressUpdater = (
+  setSseSteps: React.Dispatch<React.SetStateAction<{ label: string; status: 'wait' | 'process' | 'finish' | 'error' }[]>>,
+  setProgress: (p: { stage: string; progress: number; message: string }) => void,
+) => (stage: string, pct: number, msg: string) => {
+  setProgress({ stage, progress: pct, message: msg })
+  setSseSteps(prev => {
+    const idx = prev.findIndex(s => s.label.includes(stage) || stage.includes(s.label))
+    if (idx >= 0) {
+      return prev.map((s, i) => ({
+        ...s,
+        status: i < idx ? 'finish' : i === idx ? 'process' : 'wait',
+      }))
+    }
+    return prev
+  })
+}
+
+/** 将后端 diagnosis_completed 数据解析为前端 DiagnosisResult */
+const buildDiagnosisResultFromData = (
+  data: any,
+  studentId: number,
+  overrides?: Partial<DiagnosisResult>
+): DiagnosisResult => {
+  const rawScores = data.dimension_scores ?? {}
+  const dimension_scores: Record<string, number> = {}
+  for (const [k, v] of Object.entries(rawScores)) {
+    dimension_scores[DIM_KEY_MAP[k] ?? k] = v as number
+  }
+  const rawChanges = data.dimension_changes ?? {}
+  const dimension_changes: Record<string, number> = {}
+  for (const [k, v] of Object.entries(rawChanges)) {
+    dimension_changes[DIM_KEY_MAP[k] ?? k] = v as number
+  }
+  const gp = data.growth_path
+  return {
+    id: data.id || '',
+    student_id: studentId,
+    version: data.version ?? 1,
+    diagnosis_type: data.diagnosis_type || 'full',
+    match_score: data.match_score ?? 0,
+    dimension_scores,
+    dimension_changes,
+    gap_details: Array.isArray(data.gap_details) ? data.gap_details : [],
+    top5_jobs: Array.isArray(data.top5_jobs) ? data.top5_jobs : [],
+    growth_path: gp && typeof gp === 'object' ? { phases: Array.isArray(gp.phases) ? gp.phases : [] } : { phases: [] },
+    career_advice: data.career_advice ?? '',
+    ai_reasoning: data.ai_reasoning ?? {},
+    reasoning: data.reasoning ?? '',
+    ability_profile: data.ability_profile ?? null,
+    explanations: data.explanations ?? null,
+    confidence: data.confidence ?? null,
+    ai_status: data.ai_status ?? 'available',
+    trigger_event: data.trigger_event || '',
+    created_at: data.created_at || new Date().toISOString(),
+    ...overrides,
+  }
+}
+
+/** 对从 API 直接返回的诊断历史做同样的防御性归一化 */
+const normalizeDiagnosisResult = (raw: any): DiagnosisResult => {
+  if (!raw || typeof raw !== 'object') return raw
+  return buildDiagnosisResultFromData(raw, raw.student_id ?? 0, {
+    id: raw.id,
+    created_at: raw.created_at,
+    ai_status: raw.ai_status,
+  })
 }
 
 export default function Dashboard() {
@@ -103,13 +209,15 @@ export default function Dashboard() {
     hydrateFromStorage,
   } = useAppStore()
 
-  const [activeTab, setActiveTab] = useState<TabKey>('profile')
+  const [activeTab, setActiveTab] = useState<TabKey>('overview')
   const [diagnosing, setDiagnosing] = useState(false)
   const [diagnosisError, setDiagnosisError] = useState('')
   const [diagnosisSuccess, setDiagnosisSuccess] = useState(false)
   const [sseSteps, setSseSteps] = useState<{ label: string; status: 'wait' | 'process' | 'finish' | 'error' }[]>([])
   const [showReEval, setShowReEval] = useState(false)
   const [reEvalMsg, setReEvalMsg] = useState('')
+  const [nextActions, setNextActions] = useState<NextAction[]>([])
+  const [conversationOpen, setConversationOpen] = useState(false)
 
   // 区分初始化恢复状态，解决刷新重复诊断的 race condition
   const [hydrated, setHydrated] = useState(false)
@@ -130,7 +238,36 @@ export default function Dashboard() {
     '生成建议': { desc: '整合分析结果，输出完整的职业诊断报告...', icon: <Lightbulb size={16} /> },
   }
 
-  // 执行初诊——SSE 流式接收进度并更新步骤条状态
+  // 处理 next_action 点击
+  const handleNextAction = useCallback((action: NextAction) => {
+    if (action.intent === 'navigate') {
+      const target = action.payload?.target
+      switch (target) {
+        case 'authorization_tab':
+          setActiveTab('authorization')
+          break
+        case 'match_tab':
+        case 'diagnosis':
+          setActiveTab('diagnosis')
+          break
+        case 'growth_tab':
+        case 'growth_tasks':
+          setActiveTab('tasks')
+          break
+        case 'dashboard':
+        case 'profile':
+          setActiveTab('overview')
+          break
+        case 'profile_input':
+          navigate('/student/input', { state: { fromDashboard: true } })
+          break
+        default:
+          break
+      }
+    }
+  }, [navigate])
+
+  // 执行初诊——通过 Agent Stream 统一入口
   const runDiagnosis = useCallback(async () => {
     if (!student) return
     setDiagnosing(true)
@@ -139,57 +276,27 @@ export default function Dashboard() {
     setSseSteps(staticSseSteps.map((s, i) => ({ ...s, status: i === 0 ? 'process' : 'wait' })))
 
     try {
-      const result = await startDiagnosis(student.id, (stage, pct, msg) => {
-        setProgress({ stage, progress: pct, message: msg })
-
-        setSseSteps(prev => {
-          const idx = prev.findIndex(s => s.label.includes(stage) || stage.includes(s.label))
-          if (idx >= 0) {
-            return prev.map((s, i) => ({
-              ...s,
-              status: i < idx ? 'finish' : i === idx ? 'process' : 'wait',
-            }))
-          }
-          return prev
-        })
-      })
+      const result = await runStudentAgentStream(
+        student.id, 'diagnose', {}, makeSseProgressUpdater(setSseSteps, setProgress)
+      )
 
       setSseSteps(staticSseSteps.map(s => ({ ...s, status: 'finish' })))
 
-      const rawScores = result.dimension_scores ?? {}
-      const rawChanges = result.dimension_changes ?? {}
-      const dimension_scores: Record<string, number> = {}
-      const dimension_changes: Record<string, number> = {}
-      for (const [k, v] of Object.entries(rawScores)) {
-        const mapped = DIM_KEY_MAP[k] ?? k
-        dimension_scores[mapped] = v as number
+      if (result.action === 'ask_for_info') {
+        setAgentFollowup({
+          questions: result.data?.followup_questions || [],
+          completeness: result.data?.completeness ?? 0,
+        })
+      } else if (result.action === 'diagnosis_completed') {
+        const diagResult = buildDiagnosisResultFromData(result.data || {}, student.id)
+        setDiagnosisResult(diagResult)
+        setActiveTab('diagnosis')
+        setDiagnosisSuccess(true)
+        setNextActions(result.next_actions || [])
+        setTimeout(() => setDiagnosisSuccess(false), 4000)
+      } else {
+        setDiagnosisError('诊断返回了非预期的结果')
       }
-      for (const [k, v] of Object.entries(rawChanges)) {
-        const mapped = DIM_KEY_MAP[k] ?? k
-        dimension_changes[mapped] = v as number
-      }
-
-      const diagResult: DiagnosisResult = {
-        id: result.id || result.diagnosis_id || '',
-        student_id: student.id,
-        version: result.version ?? 1,
-        diagnosis_type: result.diagnosis_type || 'full',
-        match_score: result.match_score ?? 0,
-        dimension_scores,
-        dimension_changes,
-        gap_details: result.gap_details ?? [],
-        top5_jobs: result.top5_jobs ?? [],
-        growth_path: result.growth_path ?? { phases: [] },
-        career_advice: result.career_advice ?? '',
-        ai_reasoning: result.ai_reasoning ?? {},
-        trigger_event: result.trigger_event || '初始诊断',
-        created_at: result.created_at || new Date().toISOString(),
-      }
-
-      setDiagnosisResult(diagResult)
-      setActiveTab('profile')
-      setDiagnosisSuccess(true)
-      setTimeout(() => setDiagnosisSuccess(false), 4000)
     } catch (err: any) {
       const msg = err?.message || '诊断失败，请检查网络连接后重试'
       setSseSteps(prev => prev.map(s => ({ ...s, status: s.status === 'process' ? 'error' : s.status })))
@@ -200,7 +307,7 @@ export default function Dashboard() {
     }
   }, [student])
 
-  // 执行再诊断——技能变化后重新评估
+  // 执行再诊断——通过 Agent Stream 统一入口（手动复诊使用 diagnose intent）
   const handleReEvaluate = useCallback(async () => {
     if (!student) return
     setShowReEval(false)
@@ -209,59 +316,31 @@ export default function Dashboard() {
     setSseSteps(staticSseSteps.map((s, i) => ({ ...s, status: i === 0 ? 'process' : 'wait' })))
 
     try {
-      const result = await reEvaluate(student.id, '重新诊断', (stage, pct, msg) => {
-        setProgress({ stage, progress: pct, message: msg })
-        setSseSteps(prev => {
-          const idx = prev.findIndex(s => s.label.includes(stage) || stage.includes(s.label))
-          if (idx >= 0) {
-            return prev.map((s, i) => ({
-              ...s,
-              status: i < idx ? 'finish' : i === idx ? 'process' : 'wait',
-            }))
-          }
-          return prev
-        })
-      })
+      const result = await runStudentAgentStream(
+        student.id, 'diagnose', {}, makeSseProgressUpdater(setSseSteps, setProgress)
+      )
 
       setSseSteps(staticSseSteps.map(s => ({ ...s, status: 'finish' })))
 
-      const rawScores2 = result.dimension_scores ?? {}
-      const rawChanges2 = result.dimension_changes ?? {}
-      const dimension_scores2: Record<string, number> = {}
-      const dimension_changes2: Record<string, number> = {}
-      for (const [k, v] of Object.entries(rawScores2)) {
-        const mapped = DIM_KEY_MAP[k] ?? k
-        dimension_scores2[mapped] = v as number
-      }
-      for (const [k, v] of Object.entries(rawChanges2)) {
-        const mapped = DIM_KEY_MAP[k] ?? k
-        dimension_changes2[mapped] = v as number
-      }
+      if (result.action === 'diagnosis_completed') {
+        const data = result.data || {}
+        const diagResult = buildDiagnosisResultFromData(data, student.id, {
+          version: data.version ?? (diagnosisResult ? diagnosisResult.version + 1 : 1),
+          diagnosis_type: data.diagnosis_type || 'manual_rerun',
+          trigger_event: data.trigger_event || '重新诊断',
+        })
 
-      const diagResult: DiagnosisResult = {
-        id: result.id || result.diagnosis_id || '',
-        student_id: student.id,
-        version: result.version ?? (diagnosisResult ? diagnosisResult.version + 1 : 1),
-        diagnosis_type: result.diagnosis_type || 're_evaluate',
-        match_score: result.match_score ?? 0,
-        dimension_scores: dimension_scores2,
-        dimension_changes: dimension_changes2,
-        gap_details: result.gap_details ?? [],
-        top5_jobs: result.top5_jobs ?? [],
-        growth_path: result.growth_path ?? { phases: [] },
-        career_advice: result.career_advice ?? '',
-        ai_reasoning: result.ai_reasoning ?? {},
-        trigger_event: result.trigger_event || '重新诊断',
-        created_at: result.created_at || new Date().toISOString(),
+        if (diagnosisResult) {
+          setDiagnosisHistory([...diagnosisHistory, diagnosisResult])
+        }
+        setDiagnosisResult(diagResult)
+        setNextActions(result.next_actions || [])
+        setActiveTab('diagnosis')
+        setDiagnosisSuccess(true)
+        setTimeout(() => setDiagnosisSuccess(false), 4000)
+      } else {
+        setDiagnosisError(result.message || '诊断返回了非预期的结果')
       }
-
-      if (diagnosisResult) {
-        setDiagnosisHistory([...diagnosisHistory, diagnosisResult])
-      }
-      setDiagnosisResult(diagResult)
-      setActiveTab('profile')
-      setDiagnosisSuccess(true)
-      setTimeout(() => setDiagnosisSuccess(false), 4000)
     } catch (err: any) {
       const msg = err?.message || '再诊断失败，请稍后重试'
       setSseSteps(prev => prev.map(s => ({ ...s, status: s.status === 'process' ? 'error' : s.status })))
@@ -284,8 +363,9 @@ export default function Dashboard() {
 
           const history = await getDiagnosisHistory(storedId)
           if (history && history.length > 0) {
-            setDiagnosisResult(history[0])
-            setDiagnosisHistory(history)
+            const normalized = history.map(normalizeDiagnosisResult)
+            setDiagnosisResult(normalized[0])
+            setDiagnosisHistory(normalized)
           }
         } catch (e) {
           console.warn('恢复会话失败，清除本地缓存:', e)
@@ -300,14 +380,49 @@ export default function Dashboard() {
     init()
   }, [])
 
+  // Agent 追问信息状态
+  const [agentFollowup, setAgentFollowup] = useState<{
+    questions: Array<{ question: string; field: string; priority: string }>
+    completeness: number
+  } | null>(null)
+
   // 防止 React StrictMode 或竞态导致重复触发诊断
   const diagnosisTriggeredRef = useRef(false)
 
-  // 2. 只有在初始化恢复完成 (hydrated) 后，且无诊断结果时，才触发自动诊断
+  // 2. 初始化恢复完成后，通过 Agent Stream API 判断是否需要诊断
   useEffect(() => {
     if (hydrated && student && !diagnosisResult && !diagnosing && !diagnosisTriggeredRef.current) {
       diagnosisTriggeredRef.current = true
-      runDiagnosis()
+      setDiagnosing(true)
+      setIsLoading(true)
+      setSseSteps(staticSseSteps.map((s, i) => ({ ...s, status: i === 0 ? 'process' : 'wait' })))
+
+      runStudentAgentStream(student.id, 'diagnose', {}, makeSseProgressUpdater(setSseSteps, setProgress))
+        .then((result) => {
+          setDiagnosing(false)
+          setIsLoading(false)
+          if (result.action === 'ask_for_info') {
+            setAgentFollowup({
+              questions: result.data?.followup_questions || [],
+              completeness: result.data?.completeness ?? 0,
+            })
+          } else if (result.action === 'diagnosis_completed') {
+            const diagResult = buildDiagnosisResultFromData(result.data || {}, student.id)
+            setDiagnosisResult(diagResult)
+            setActiveTab('diagnosis')
+            setDiagnosisSuccess(true)
+            setNextActions(result.next_actions || [])
+            setTimeout(() => setDiagnosisSuccess(false), 4000)
+          } else {
+            setDiagnosisError(result.message || '诊断返回了非预期的结果')
+          }
+        })
+        .catch((err) => {
+          setDiagnosing(false)
+          setIsLoading(false)
+          const msg = err?.message || '诊断失败，请检查网络连接后重试'
+          setDiagnosisError(msg)
+        })
     }
   }, [hydrated, student, diagnosisResult, diagnosing, runDiagnosis])
 
@@ -315,7 +430,9 @@ export default function Dashboard() {
   useEffect(() => {
     if (student && diagnosisResult) {
       getDiagnosisHistory(student.id)
-        .then((data: DiagnosisResult[]) => setDiagnosisHistory(data))
+        .then((data: DiagnosisResult[]) => setDiagnosisHistory(
+          Array.isArray(data) ? data.map(normalizeDiagnosisResult) : []
+        ))
         .catch(() => { console.warn('加载诊断历史失败') })
     }
   }, [student, diagnosisResult])
@@ -324,34 +441,51 @@ export default function Dashboard() {
 
   if (!student) {
     return (
-      <div style={{
-        minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'var(--bg-page)', transition: 'background-color 0.3s',
-      }}>
-        <div style={{ textAlign: 'center' }}>
-          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--accent-amber)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-          </svg>
-          <div style={{ marginTop: 16, fontSize: 18, fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }}>
-            请先填写个人信息
+      <div className="bento-dashboard">
+        <style>{`
+          .bento-no-student-card {
+            text-align: center;
+            padding: var(--space-12);
+            max-width: 440px;
+            margin: auto;
+          }
+          .bento-no-student-card .btn {
+            margin-top: var(--space-6);
+          }
+          .bento-no-student-icon {
+            margin-bottom: var(--space-4);
+          }
+          .bento-no-student-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-primary);
+            font-family: var(--font-display);
+            margin-bottom: var(--space-2);
+          }
+          .bento-no-student-desc {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.6;
+          }
+        `}</style>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
+          <div className="surface-card bento-no-student-card">
+            <div className="bento-no-student-icon">
+              <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="var(--accent-warning)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+            </div>
+            <div className="bento-no-student-title">请先填写个人信息</div>
+            <div className="bento-no-student-desc">
+              完善你的教育背景和目标岗位，AI 才能为你提供精准诊断
+            </div>
+            <button
+              className="btn btn-primary btn-lg"
+              onClick={() => navigate('/student/input')}
+            >
+              前往填写
+            </button>
           </div>
-          <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-secondary)', marginBottom: 24 }}>
-            完善你的教育背景和目标岗位，AI 才能为你提供精准诊断
-          </div>
-          <button
-            onClick={() => navigate('/student/input')}
-            style={{
-              padding: '10px 32px', borderRadius: 8, border: 'none',
-              background: 'var(--accent-blue)', color: '#fff',
-              cursor: 'pointer', fontSize: 14, fontWeight: 600,
-              fontFamily: 'var(--font-display)', letterSpacing: '0.5px',
-              transition: 'all 0.25s ease',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 20px rgba(91,156,245,0.4)'; e.currentTarget.style.transform = 'scale(1.03)' }}
-            onMouseLeave={e => { e.currentTarget.style.boxShadow = ''; e.currentTarget.style.transform = '' }}
-          >
-            前往填写
-          </button>
         </div>
       </div>
     )
@@ -412,25 +546,19 @@ export default function Dashboard() {
     if (diagnosisError) {
       return (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 24px' }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 40, marginBottom: 16 }}>⚠️</div>
-            <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'var(--font-display)', marginBottom: 8 }}>
-              诊断遇到问题
+          <div className="surface-card" style={{ textAlign: 'center', padding: 'var(--space-10)', maxWidth: 480 }}>
+            <div style={{ fontSize: 40, marginBottom: 'var(--space-4)' }}>
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent-danger)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
             </div>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8, maxWidth: 400, wordBreak: 'break-word' }}>
+            <div className="section-title" style={{ marginBottom: 'var(--space-2)' }}>诊断遇到问题</div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 'var(--space-6)', maxWidth: 400, wordBreak: 'break-word', lineHeight: 1.6 }}>
               {diagnosisError}
             </div>
             <button
+              className="btn btn-primary"
               onClick={() => { setDiagnosisError(''); runDiagnosis() }}
-              style={{
-                padding: '10px 32px', borderRadius: 8, border: 'none',
-                background: 'var(--accent-blue)', color: '#fff',
-                cursor: 'pointer', fontSize: 14, fontWeight: 600,
-                fontFamily: 'var(--font-display)', letterSpacing: '0.5px',
-                transition: 'all 0.25s ease',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 20px rgba(91,123,181,0.4)'; e.currentTarget.style.transform = 'scale(1.03)' }}
-              onMouseLeave={e => { e.currentTarget.style.boxShadow = ''; e.currentTarget.style.transform = '' }}
             >
               重新诊断
             </button>
@@ -440,29 +568,67 @@ export default function Dashboard() {
     }
 
     if (!diagnosisResult) {
+      // Agent 追问信息不足
+      if (agentFollowup) {
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 24px' }}>
+            <div className="surface-card" style={{ textAlign: 'center', padding: 'var(--space-10)', maxWidth: 560 }}>
+              <div style={{ fontSize: 40, marginBottom: 'var(--space-4)' }}>
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent-warning)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+                </svg>
+              </div>
+              <div className="section-title" style={{ marginBottom: 'var(--space-2)' }}>需要补充一些信息</div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 'var(--space-6)', lineHeight: 1.6 }}>
+                当前信息完整度 {Math.round(agentFollowup.completeness * 100)}%，补充以下信息后诊断会更准确：
+              </div>
+              <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', marginBottom: 'var(--space-6)' }}>
+                {agentFollowup.questions.map((q, i) => (
+                  <div key={i} className="surface-card" style={{ padding: 'var(--space-3) var(--space-4)', borderLeft: '3px solid var(--accent-warning)' }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4, fontFamily: 'var(--font-display)', fontSize: 13, color: 'var(--text-primary)' }}>
+                      {q.priority === 'high'
+                        ? <span className="status-badge status-badge-danger">高优先</span>
+                        : <span className="status-badge status-badge-warning">中优先</span>
+                      }{' '}
+                      {q.question}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
+                      缺失字段: {q.field}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: 'var(--space-3)', justifyContent: 'center' }}>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => navigate('/student/input', { state: { fromDashboard: true } })}
+                >
+                  去完善档案
+                </button>
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => setAgentFollowup(null)}
+                >
+                  暂不诊断
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
       return (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 24px' }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{
-              fontSize: 16, fontWeight: 600, color: 'var(--text-primary)',
-              fontFamily: 'var(--font-display)', marginBottom: 8,
-            }}>
-              准备就绪
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 24 }}>
-              {student.name}，请点击下方按钮开始 AI 诊断分析
-            </div>
+          <div className="surface-card" style={{ textAlign: 'center', padding: 'var(--space-10)', maxWidth: 440 }}>
+            <EmptyState
+              icon="🔍"
+              title="暂无诊断记录"
+              description="点击上方按钮开始你的首次 AI 诊断"
+            />
             <button
+              className="btn btn-primary btn-lg"
               onClick={runDiagnosis}
-              style={{
-                padding: '10px 32px', borderRadius: 8, border: 'none',
-                background: 'var(--accent-blue)', color: '#fff',
-                cursor: 'pointer', fontSize: 14, fontWeight: 600,
-                fontFamily: 'var(--font-display)', letterSpacing: '0.5px',
-                transition: 'all 0.25s ease',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 20px rgba(91,156,245,0.4)'; e.currentTarget.style.transform = 'scale(1.03)' }}
-              onMouseLeave={e => { e.currentTarget.style.boxShadow = ''; e.currentTarget.style.transform = '' }}
+              style={{ marginTop: 'var(--space-2)' }}
             >
               开始诊断
             </button>
@@ -472,56 +638,53 @@ export default function Dashboard() {
     }
 
     switch (activeTab) {
-      case 'profile':
+      case 'overview':
         return (
-          <ProfileTab
+          <OverviewTab
             profile={profile!}
-            changes={diagnosisResult.dimension_changes}
+            dimensionChanges={diagnosisResult.dimension_changes}
+            student={student!}
+            growthPath={diagnosisResult.growth_path}
+            diagnosisHistory={diagnosisHistory.length > 0 ? diagnosisHistory : [diagnosisResult]}
           />
         )
-      case 'match':
+      case 'diagnosis':
         return (
-          <MatchTab
-            matchScore={diagnosisResult.match_score}
+          <DiagnosisTab
+            diagnosisResult={diagnosisResult}
             previousScore={previousScore}
-            dimensionScores={diagnosisResult.dimension_scores}
-            top5Jobs={diagnosisResult.top5_jobs}
-            gapDetails={diagnosisResult.gap_details}
           />
         )
-      case 'path':
+      case 'tasks':
         return (
-          <PathTab
+          <TasksTab
             growthPath={diagnosisResult.growth_path}
             diagnosisId={diagnosisResult.id}
             studentId={student?.id ?? ''}
             onTaskComplete={(taskId) => {
-              setReEvalMsg('任务已完成，是否需要重新评估当前能力水平？')
-              setShowReEval(true)
+              toast.success('成长任务已完成，继续加油！')
             }}
-          />
-        )
-      case 'advice':
-        return (
-          <AdviceTab
-            careerAdvice={diagnosisResult.career_advice}
-            aiReasoning={diagnosisResult.ai_reasoning}
-            recommendedDirections={diagnosisResult.top5_jobs?.slice(0, 3).map(j => j.title)}
-          />
-        )
-      case 'recommend':
-        return (
-          <RecommendTab top5Jobs={diagnosisResult.top5_jobs} />
-        )
-      case 'growth':
-        return (
-          <GrowthTab
-            history={diagnosisHistory.length > 0 ? diagnosisHistory : [diagnosisResult]}
+            onReEvaluateComplete={async (newDiagnosisId: string) => {
+              try {
+                if (!student) return
+                const history = await getDiagnosisHistory(student.id)
+                if (history && history.length > 0) {
+                  const normalized = history.map(normalizeDiagnosisResult)
+                  if (diagnosisResult) {
+                    setDiagnosisHistory([...diagnosisHistory, diagnosisResult])
+                  }
+                  setDiagnosisResult(normalized[0])
+                  setDiagnosisHistory(normalized)
+                }
+                setReEvalMsg('复评完成，能力画像已更新。')
+                setShowReEval(false)
+              } catch {}
+            }}
           />
         )
       case 'authorization':
         return (
-          <AuthorizationTab
+          <AuthorizationPageTab
             student={student!}
             diagnosisResult={diagnosisResult}
           />
@@ -532,66 +695,60 @@ export default function Dashboard() {
   }
 
   return (
-    <div style={{
-      minHeight: '100vh', display: 'flex', flexDirection: 'column',
-      background: 'var(--bg-page)', transition: 'background-color 0.3s',
-    }}>
-      {/* 顶部导航栏——返回、学生信息、重新诊断 */}
-      <header className="glass-panel" style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '12px 24px',
-        borderBottom: '1px solid var(--border-light)',
-        flexShrink: 0,
-        position: 'sticky', top: 0, zIndex: 100,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+    <div className="bento-dashboard">
+      <style>{`
+        .bento-topbar .btn-back:hover {
+          border-color: var(--accent-primary);
+          color: var(--accent-primary);
+        }
+        .bento-topbar .btn-rediagnose:hover {
+          background: rgba(0,113,227,0.12);
+          box-shadow: none;
+        }
+        .bento-success-toast .toast-action:hover {
+          background: rgba(255,255,255,0.35);
+        }
+      `}</style>
+
+      {/* Sticky top bar */}
+      <div className="bento-topbar">
+        <div className="bento-topbar-brand">
+          <button className="brand-link" onClick={() => navigate('/')}>
+            <span className="brand-link-mark"><Sparkles size={14} /></span>
+            职达
+          </button>
+          <span className="brand-divider" />
           <button
+            className="btn btn-ghost btn-sm btn-back"
             onClick={() => navigate('/student/input', { state: { fromDashboard: true } })}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '6px 12px', borderRadius: 6,
-              border: '1px solid var(--border-light)',
-              background: 'transparent', color: 'var(--text-secondary)',
-              cursor: 'pointer', fontSize: 12, fontWeight: 500,
-              fontFamily: 'var(--font-display)',
-              transition: 'all 0.2s ease',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent-blue)'; e.currentTarget.style.color = 'var(--accent-blue)' }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border-light)'; e.currentTarget.style.color = 'var(--text-secondary)' }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="15 18 9 12 15 6"/>
             </svg>
             返回
           </button>
-          <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-display)', letterSpacing: '1px' }}>
-            职达
-          </span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
-          <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+          <span style={{ fontSize: 13, color: 'var(--text-secondary)', marginLeft: 'var(--space-2)' }}>
             学生：<span style={{ color: 'var(--text-primary)', fontWeight: 600, fontFamily: 'var(--font-display)' }}>{student.name}</span>
           </span>
-          <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-            目标：<span style={{ color: 'var(--accent-teal)', fontWeight: 600, fontFamily: 'var(--font-display)' }}>{student.target_job || '未设置'}</span>
+          <span style={{ fontSize: 13, color: 'var(--text-secondary)', marginLeft: 'var(--space-3)' }}>
+            目标：<span className="tag tag-blue">{student.target_job || '未设置'}</span>
           </span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div className="bento-topbar-actions">
+          {diagnosisResult && <AIStatusBadge aiStatus={diagnosisResult.ai_status} />}
           <ThemeToggle />
           <button
+            className="btn btn-sm btn-rediagnose"
             onClick={() => { setReEvalMsg('是否基于当前成长数据重新进行诊断评估？'); setShowReEval(true) }}
             style={{
               display: 'flex', alignItems: 'center', gap: 6,
-              padding: '7px 18px', borderRadius: 6,
-              border: '1px solid var(--accent-blue)',
-              background: 'rgba(91,156,245,0.1)',
-              color: 'var(--accent-blue)', cursor: 'pointer',
+              border: '1px solid var(--accent-primary)',
+              background: 'rgba(0,113,227,0.08)',
+              color: 'var(--accent-primary)',
               fontSize: 12, fontWeight: 600,
               fontFamily: 'var(--font-display)', letterSpacing: '0.5px',
               transition: 'all 0.25s ease',
             }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(91,156,245,0.2)'; e.currentTarget.style.boxShadow = '0 0 14px rgba(91,156,245,0.2)' }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(91,156,245,0.1)'; e.currentTarget.style.boxShadow = '' }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="23 4 23 10 17 10"/>
@@ -600,54 +757,27 @@ export default function Dashboard() {
             重新诊断
           </button>
         </div>
-      </header>
+      </div>
 
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* 左侧 Tab 导航 */}
-        <nav style={{
-          width: 180, flexShrink: 0, minWidth: 180,
-          display: 'flex', flexDirection: 'column',
-          borderRight: '1px solid var(--border-light)',
-          background: 'var(--bg-card)',
-          paddingTop: 8,
-          transition: 'background-color 0.3s, border-color 0.3s',
-        }}>
-          {TABS.map(tab => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              style={{
-                textAlign: 'left',
-                padding: '14px 20px',
-                border: 'none',
-                background: activeTab === tab.key ? 'var(--bg-hover)' : 'transparent',
-                color: activeTab === tab.key ? 'var(--accent-blue)' : 'var(--text-secondary)',
-                cursor: 'pointer',
-                fontSize: 13,
-                fontWeight: activeTab === tab.key ? 600 : 400,
-                fontFamily: 'var(--font-body)',
-                borderLeft: activeTab === tab.key ? '3px solid var(--accent-blue)' : '3px solid transparent',
-                transition: 'all 0.2s ease',
-              }}
-              onMouseEnter={e => { if (activeTab !== tab.key) { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.background = 'var(--bg-page)' } }}
-              onMouseLeave={e => { if (activeTab !== tab.key) { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.background = 'transparent' } }}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </nav>
+      {/* Horizontal tab navigation */}
+      <div className="bento-nav-tabs">
+        {TABS.map(tab => (
+          <button
+            key={tab.key}
+            className={`bento-nav-tab${activeTab === tab.key ? ' active' : ''}`}
+            onClick={() => setActiveTab(tab.key)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-        <main style={{
-          flex: 1,
-          overflow: 'auto',
-          padding: '24px',
-          background: 'var(--bg-page)',
-          transition: 'background-color 0.3s',
-        }}>
-          <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-            {renderTabContent()}
-          </div>
-        </main>
+      {/* Content area */}
+      <div className="bento-content">
+        <div style={{ maxWidth: 1200, margin: '0 auto', width: '100%' }}>
+          {diagnosisResult?.reasoning && <AIReasoningPanel reasoning={diagnosisResult.reasoning} nextActions={nextActions} onNextAction={handleNextAction} />}
+          {renderTabContent()}
+        </div>
       </div>
 
       {diagnosisResult && (
@@ -655,13 +785,24 @@ export default function Dashboard() {
       )}
 
       {diagnosisSuccess && (
-        <div style={{
-          position: 'fixed', bottom: 60, left: '50%', transform: 'translateX(-50%)', zIndex: 200,
-          padding: '10px 24px', borderRadius: 10, background: 'var(--accent-green)', color: '#fff',
-          fontSize: 14, fontWeight: 600, fontFamily: 'var(--font-display)',
-          boxShadow: '0 4px 16px rgba(107,168,122,0.4)', animation: 'slideUp 0.3s ease-out',
-        }}>
-          ✓ 诊断完成，结果已更新
+        <div
+          className="surface-card bento-success-toast"
+          style={{
+            position: 'fixed', bottom: 60, left: '50%', transform: 'translateX(-50%)', zIndex: 200,
+            display: 'flex', alignItems: 'center', gap: 'var(--space-3)',
+            padding: 'var(--space-3) var(--space-6)',
+            background: 'var(--accent-success)', color: '#fff',
+            fontSize: 14, fontWeight: 600, fontFamily: 'var(--font-display)',
+            animation: 'slideUp 0.3s ease-out',
+            border: 'none',
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            诊断完成，结果已更新
+          </span>
         </div>
       )}
 
@@ -670,6 +811,58 @@ export default function Dashboard() {
         message={reEvalMsg}
         onReEvaluate={handleReEvaluate}
         onDismiss={() => setShowReEval(false)}
+      />
+
+      {/* Floating AI chat button */}
+      <button
+        onClick={() => setConversationOpen(true)}
+        style={{
+          position: 'fixed',
+          bottom: 24,
+          right: 24,
+          width: 52,
+          height: 52,
+          borderRadius: '50%',
+          border: 'none',
+          background: 'var(--accent-primary, #0071e3)',
+          color: '#fff',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: '0 4px 16px rgba(0,113,227,0.35)',
+          zIndex: 997,
+          transition: 'transform 0.2s, box-shadow 0.2s',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = 'scale(1.08)'
+          e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,113,227,0.45)'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = 'scale(1)'
+          e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,113,227,0.35)'
+        }}
+        title="AI 助手对话"
+      >
+        <svg
+          width="24"
+          height="24"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+        </svg>
+      </button>
+
+      {/* Conversation panel drawer */}
+      <ConversationPanel
+        studentId={student.id}
+        open={conversationOpen}
+        onClose={() => setConversationOpen(false)}
       />
     </div>
   )

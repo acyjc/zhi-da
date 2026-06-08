@@ -27,9 +27,9 @@ const AIReasoning: FC<Props> = ({ reasoning }) => {
         }}
       >
         <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-violet)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm-1 5h2v6h-2zm1 8h0"/>
-            <circle cx="12" cy="19" r="1" fill="var(--accent-violet)" stroke="none"/>
+            <circle cx="12" cy="19" r="1" fill="var(--accent-primary)" stroke="none"/>
           </svg>
           AI 推理依据
         </span>
@@ -64,10 +64,10 @@ const AIReasoning: FC<Props> = ({ reasoning }) => {
                     height: '100%', borderRadius: 2,
                     width: `${item.confidence * 100}%`,
                     background: item.confidence >= 0.7
-                      ? 'var(--accent-green)'
+                      ? 'var(--accent-success)'
                       : item.confidence >= 0.4
-                        ? 'var(--accent-amber)'
-                        : 'var(--accent-rose)',
+                        ? 'var(--accent-warning)'
+                        : 'var(--accent-danger)',
                     transition: 'width 0.6s ease',
                   }}/>
                 </div>

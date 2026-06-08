@@ -5,14 +5,14 @@ from typing import Optional, Any
 
 
 class TaskCompleteRequest(BaseModel):
-    student_id: str
+    student_id: int
     task_id: str
     evidence: str = Field(default="", max_length=500)
 
 
 class TaskProgressResponse(BaseModel):
     id: str
-    student_id: str
+    student_id: int
     diagnosis_id: Optional[str]
     phase_index: int
     task_index: int

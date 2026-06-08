@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from main import app
 from db.database import async_session, init_db
 from db.models import DiagnosisResult
+from tests.conftest import auth_headers
 
 import asyncio
 
@@ -12,7 +13,7 @@ def setup_db():
     asyncio.run(init_db())
 
 
-def create_test_diagnosis(student_id: str) -> str:
+def create_test_diagnosis(student_id: int) -> str:
     async def _create():
         async with async_session() as db:
             diag = DiagnosisResult(
@@ -34,7 +35,7 @@ def create_test_diagnosis(student_id: str) -> str:
     return asyncio.run(_create())
 
 
-def create_test_student(client: TestClient, name: str) -> str:
+def create_test_student(client: TestClient, name: str) -> int:
     response = client.post("/api/students", json={
         "name": name,
         "grade": "大三",
@@ -59,7 +60,8 @@ def test_health():
 
 def test_get_student_jobs():
     with TestClient(app) as client:
-        response = client.get("/api/student/jobs")
+        headers = auth_headers("student", student_id=9003)
+        response = client.get("/api/student/jobs", headers=headers)
         assert response.status_code == 200
         jobs = response.json()
         assert isinstance(jobs, list)
@@ -72,7 +74,7 @@ def test_get_student_jobs():
 
 def test_get_admin_summary():
     with TestClient(app) as client:
-        response = client.get("/api/admin/summary")
+        response = client.get("/api/admin/summary", headers=auth_headers("admin", admin_account="admin"))
         assert response.status_code == 200
         summary = response.json()
         assert "total_students" in summary
@@ -83,21 +85,25 @@ def test_get_admin_summary():
 
 def test_get_admin_enterprises():
     with TestClient(app) as client:
-        response = client.get("/api/admin/enterprises")
+        response = client.get("/api/admin/enterprises", headers=auth_headers("admin", admin_account="admin"))
         assert response.status_code == 200
-        ents = response.json()
+        data = response.json()
+        # API 返回分页格式 {items: [...], page, total, ...} 或列表
+        ents = data.get("items", data) if isinstance(data, dict) else data
         assert isinstance(ents, list)
 
 def test_get_admin_jobs():
     with TestClient(app) as client:
-        response = client.get("/api/admin/jobs")
+        response = client.get("/api/admin/jobs", headers=auth_headers("admin", admin_account="admin"))
         assert response.status_code == 200
-        jobs = response.json()
+        data = response.json()
+        # API 返回分页格式 {items: [...], page, total, ...} 或列表
+        jobs = data.get("items", data) if isinstance(data, dict) else data
         assert isinstance(jobs, list)
 
 def test_enterprise_profile():
     with TestClient(app) as client:
-        response = client.get("/api/enterprise/profile?enterprise_id=1")
+        response = client.get("/api/enterprise/profile?enterprise_id=1", headers=auth_headers("enterprise", enterprise_id="1"))
         assert response.status_code == 200
         profile = response.json()
         assert profile["id"] == "1"
@@ -114,7 +120,7 @@ def test_authorization_rejects_diagnosis_from_other_student():
             "student_id": student_id,
             "job_post_id": "post_2",
             "diagnosis_id": other_diagnosis_id,
-        })
+        }, headers=auth_headers("student", student_id=student_id))
 
         assert response.status_code == 400
         assert "does not belong" in response.json()["detail"]
@@ -129,7 +135,7 @@ def test_authorization_rejects_unapproved_job():
             "student_id": student_id,
             "job_post_id": "post_3",
             "diagnosis_id": diagnosis_id,
-        })
+        }, headers=auth_headers("student", student_id=student_id))
 
         assert response.status_code == 400
         assert "not approved" in response.json()["detail"]

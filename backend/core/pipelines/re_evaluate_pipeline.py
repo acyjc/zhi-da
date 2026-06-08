@@ -4,11 +4,19 @@ from core.pipelines.diagnosis_pipeline import ProfileStep, MatchStep, GapStep, P
 
 def build_re_evaluate_pipeline(changed_dimensions: list[str]) -> list:
     steps = []
-    if any(d in changed_dimensions for d in ["tech_skills", "project_exp", "soft_skills", "domain_knowledge"]):
+    profile_dimensions = [
+        "tech_skills",
+        "project_exp",
+        "soft_skills",
+        "domain_knowledge",
+        "academic_foundation",
+        "soft_skill_evidence",
+    ]
+    if any(d in changed_dimensions for d in profile_dimensions):
         steps.append(ProfileStep())
         steps.append(MatchStep())
         steps.append(GapStep())
-    if "tech_skills" in changed_dimensions or "domain_knowledge" in changed_dimensions:
+    if any(d in changed_dimensions for d in ["tech_skills", "domain_knowledge", "academic_foundation"]):
         steps.append(PathStep())
     steps.append(AdviceStep())
     return steps

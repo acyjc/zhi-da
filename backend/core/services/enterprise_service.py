@@ -1,8 +1,8 @@
 # 企业端服务——企业信息管理、在招岗位发布、JD AI 模型解析、已授权候选人检索
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
-from datetime import datetime
-from db.models import Enterprise, JobPost, JobAbilityModel, StudentAuthorization, Student, DiagnosisResult
+from core.utils.time import utc_now
+from db.models import Enterprise, JobPost, JobAbilityModel, StudentAuthorization, Student, DiagnosisResult, StudentAttachment
 from config.settings import LLM_API_KEY
 
 SYSTEM_PROMPT = """你是一个专业的岗位JD（职业描述）分析助手。请严格按照以下JSON格式解析岗位JD，不要输出任何Markdown块或解释文字：
@@ -17,18 +17,55 @@ SYSTEM_PROMPT = """你是一个专业的岗位JD（职业描述）分析助手�
     }
   ],
   "weight_config": {
-    "tech_skills": <技术权重，0-1之间浮点数>,
-    "soft_skills": <软技能权重，0-1之间浮点数>,
-    "domain_knowledge": <领域知识权重，0-1之间浮点数>
+    "tech_skills": <技术技能权重，0-1之间浮点数>,
+    "project_exp": <项目经验权重，0-1之间浮点数>,
+    "academic_foundation": <学业基础权重，0-1之间浮点数>,
+    "domain_knowledge": <领域知识权重，0-1之间浮点数>,
+    "soft_skill_evidence": <软技能证据权重，0-1之间浮点数>
   }
 }
 
 ## 规则
-1. 提取JD中明确或隐含的技术技能、软实力、领域知识要求。
+1. 提取JD中明确或隐含的技术技能、项目经验、学业背景、软实力、领域知识要求。
 2. 技能评分推荐分值通常在 60 到 90 之间（视JD中描述的重要程度而定）。
-3. weight_config 中三项权重的加和必须等于 1.0。如果未明确提及，可使用默认权重 {"tech_skills": 0.5, "soft_skills": 0.2, "domain_knowledge": 0.3}。
+3. weight_config 中五项权重的加和必须等于 1.0。如果未明确提及，可使用默认权重 {"tech_skills": 0.35, "project_exp": 0.25, "academic_foundation": 0.10, "domain_knowledge": 0.15, "soft_skill_evidence": 0.15}。
 4. 只返回上述纯JSON格式，禁止包裹在 ```json 或 ``` 块中。
 """
+
+DEFAULT_WEIGHT_CONFIG = {
+    "tech_skills": 0.35,
+    "project_exp": 0.25,
+    "academic_foundation": 0.10,
+    "domain_knowledge": 0.15,
+    "soft_skill_evidence": 0.15,
+}
+
+
+def _normalize_weight_config(raw: dict | None) -> dict:
+    if not isinstance(raw, dict):
+        raw = {}
+    aliases = {
+        "project": "project_exp",
+        "academic": "academic_foundation",
+        "domain": "domain_knowledge",
+        "soft": "soft_skill_evidence",
+        "soft_skills": "soft_skill_evidence",
+    }
+    weights = {}
+    for key, default in DEFAULT_WEIGHT_CONFIG.items():
+        raw_value = raw.get(key, default)
+        for alias, target in aliases.items():
+            if target == key and alias in raw:
+                raw_value = raw[alias]
+                break
+        try:
+            weights[key] = max(0.0, float(raw_value))
+        except (TypeError, ValueError):
+            weights[key] = default
+    total = sum(weights.values())
+    if total <= 0.01:
+        return dict(DEFAULT_WEIGHT_CONFIG)
+    return {key: round(value / total, 2) for key, value in weights.items()}
 
 
 # 1. 获取企业资料
@@ -49,7 +86,7 @@ async def update_enterprise_profile(db: AsyncSession, ent_id: str, data: dict):
     ent.description = data.get("description", ent.description)
     ent.contact_name = data.get("contact_name", ent.contact_name)
     ent.contact_email = data.get("contact_email", ent.contact_email)
-    ent.updated_at = datetime.utcnow()
+    ent.updated_at = utc_now()
     
     await db.commit()
     await db.refresh(ent)
@@ -65,14 +102,14 @@ async def list_enterprise_jobs(db: AsyncSession, ent_id: str):
 
 # 4. 创建在招岗位
 async def create_enterprise_job(db: AsyncSession, ent_id: str, data: dict):
-    # 状态默认为 pending_review 提交学校审核（或草稿 draft，根据前端可调）
+    # 状态默认为 draft 草稿，需 AI 解析能力模型后才可提交审核
     job = JobPost(
         enterprise_id=ent_id,
         title=data.get("title", "未命名岗位"),
         category=data.get("category", ""),
         description=data.get("description", ""),
         requirements_text=data.get("requirements_text", ""),
-        status=data.get("status", "pending_review")
+        status=data.get("status", "draft")
     )
     db.add(job)
     await db.commit()
@@ -95,7 +132,10 @@ async def update_enterprise_job(db: AsyncSession, ent_id: str, job_id: str, data
         new_status = data["status"]
         if new_status in ("draft", "pending_review"):
             job.status = new_status
-    job.updated_at = datetime.utcnow()
+        # 被驳回的岗位重新编辑后回到草稿态，清除旧的驳回原因
+        if new_status == "draft" and job.review_reason:
+            job.review_reason = ""
+    job.updated_at = utc_now()
     
     await db.commit()
     await db.refresh(job)
@@ -116,7 +156,7 @@ async def parse_job_ability_model(db: AsyncSession, job_id: str):
             "soft_skills": {"团队协作": 75, "沟通表达": 70},
             "domain_knowledge": {"后端开发": 80},
             "project_exp": [{"name": "Web服务开发", "description": "使用Web框架开发过完整接口"}],
-            "weight_config": {"tech_skills": 0.5, "soft_skills": 0.2, "domain_knowledge": 0.3}
+            "weight_config": dict(DEFAULT_WEIGHT_CONFIG)
         }
     else:
         from core.harness.llm import get_llm_client
@@ -136,7 +176,7 @@ async def parse_job_ability_model(db: AsyncSession, job_id: str):
                 "soft_skills": {},
                 "domain_knowledge": {},
                 "project_exp": [],
-                "weight_config": {"tech_skills": 0.5, "soft_skills": 0.2, "domain_knowledge": 0.3}
+                "weight_config": dict(DEFAULT_WEIGHT_CONFIG)
             }
             for f in ["tech_skills", "soft_skills", "domain_knowledge"]:
                 val = data.get(f, {})
@@ -144,17 +184,7 @@ async def parse_job_ability_model(db: AsyncSession, job_id: str):
                     parsed[f] = {str(k): max(0, min(100, int(v))) for k, v in val.items() if isinstance(v, (int, float)) or (isinstance(v, str) and v.isdigit())}
             
             wc = data.get("weight_config", {})
-            if isinstance(wc, dict):
-                tw = float(wc.get("tech_skills", 0.5))
-                sw = float(wc.get("soft_skills", 0.2))
-                dw = float(wc.get("domain_knowledge", 0.3))
-                tot = tw + sw + dw
-                if tot > 0.01:
-                    parsed["weight_config"] = {
-                        "tech_skills": round(tw / tot, 2),
-                        "soft_skills": round(sw / tot, 2),
-                        "domain_knowledge": round(dw / tot, 2)
-                    }
+            parsed["weight_config"] = _normalize_weight_config(wc)
                     
             proj = data.get("project_exp", [])
             if isinstance(proj, list):
@@ -173,7 +203,7 @@ async def parse_job_ability_model(db: AsyncSession, job_id: str):
                 "soft_skills": {"沟通表达": 60},
                 "domain_knowledge": {job.category or "通用领域": 70},
                 "project_exp": [],
-                "weight_config": {"tech_skills": 0.5, "soft_skills": 0.2, "domain_knowledge": 0.3}
+                "weight_config": dict(DEFAULT_WEIGHT_CONFIG)
             }
 
     # 保存或更新到表
@@ -187,7 +217,7 @@ async def parse_job_ability_model(db: AsyncSession, job_id: str):
         model.domain_knowledge = parsed["domain_knowledge"]
         model.project_exp = parsed["project_exp"]
         model.weight_config = parsed["weight_config"]
-        model.updated_at = datetime.utcnow()
+        model.updated_at = utc_now()
     else:
         model = JobAbilityModel(
             job_post_id=job_id,
@@ -204,13 +234,21 @@ async def parse_job_ability_model(db: AsyncSession, job_id: str):
     return model
 
 
-# 7. 提交岗位审核
+# 7. 提交岗位审核（必须先完成 AI 能力模型解析）
 async def submit_job_review(db: AsyncSession, ent_id: str, job_id: str):
     job = await db.get(JobPost, job_id)
     if not job or job.enterprise_id != ent_id:
         return None
+
+    # 校验：只有已解析能力模型的岗位才能提交审核
+    stmt = select(JobAbilityModel).where(JobAbilityModel.job_post_id == job_id)
+    res = await db.execute(stmt)
+    model = res.scalar_one_or_none()
+    if not model:
+        raise ValueError("请先使用 AI 解析岗位能力模型后再提交审核")
+
     job.status = "pending_review"
-    job.updated_at = datetime.utcnow()
+    job.updated_at = utc_now()
     await db.commit()
     return job
 
@@ -259,7 +297,7 @@ async def list_authorized_candidates(db: AsyncSession, ent_id: str):
 
 
 # 9. 获取单个候选人授权详情
-async def get_candidate_detail(db: AsyncSession, ent_id: str, student_id: str, auth_id: str):
+async def get_candidate_detail(db: AsyncSession, ent_id: str, student_id: int, auth_id: str):
     # 验证该授权是否有效且属于该企业
     auth = await db.get(StudentAuthorization, auth_id)
     if not auth or auth.enterprise_id != ent_id or auth.student_id != student_id or auth.status != "active":
@@ -271,6 +309,24 @@ async def get_candidate_detail(db: AsyncSession, ent_id: str, student_id: str, a
     
     if not student or not diag or not job_post:
         return None
+
+    attachment_result = await db.execute(
+        select(StudentAttachment)
+        .where(StudentAttachment.student_id == student_id)
+        .order_by(desc(StudentAttachment.uploaded_at))
+    )
+    attachments = [
+        {
+            "id": att.id,
+            "category": att.category,
+            "file_name": att.file_name,
+            "file_type": att.file_type,
+            "file_size": att.file_size,
+            "uploaded_at": att.uploaded_at.isoformat() if att.uploaded_at else None,
+            "visibility": att.visibility,
+        }
+        for att in attachment_result.scalars().all()
+    ]
         
     return {
         "student": {
@@ -278,8 +334,16 @@ async def get_candidate_detail(db: AsyncSession, ent_id: str, student_id: str, a
             "name": student.name,
             "grade": student.grade,
             "major": student.major,
+            "school": student.school,
+            "education_level": student.education_level,
+            "phone": student.phone,
+            "email": student.email,
             "target_job": student.target_job,
-            "project_exp": student.project_exp or []
+            "project_exp": student.project_exp or [],
+            "profile_sections": student.profile_sections or {},
+            "profile_completeness": student.profile_completeness or 0,
+            "academic_foundation": student.academic_foundation or {},
+            "soft_skill_evidence": student.soft_skill_evidence or {},
         },
         "job": {
             "id": job_post.id,
@@ -294,5 +358,7 @@ async def get_candidate_detail(db: AsyncSession, ent_id: str, student_id: str, a
             "gap_details": diag.gap_details or [],
             "career_advice": diag.career_advice or "",
             "ai_reasoning": diag.ai_reasoning or {}
-        }
+        },
+        "authorization_time": auth.created_at.isoformat() if auth.created_at else None,
+        "attachments": attachments,
     }

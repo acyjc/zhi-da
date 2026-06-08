@@ -36,9 +36,9 @@ export default function MatchGauge({ score, previousScore, label }: MatchGaugePr
   const anchorBorderColor = isDark ? '#16181d' : '#ffffff'
 
   // ECharts 渲染到 Canvas，必须使用实际颜色值而非 CSS 变量
-  const roseColor = resolveCssVar('--accent-rose', '#f472b6')
-  const amberColor = resolveCssVar('--accent-amber', '#fbbf24')
-  const greenColor = resolveCssVar('--accent-green', '#6ba87a')
+  const roseColor = resolveCssVar('--accent-danger', '#f472b6')
+  const amberColor = resolveCssVar('--accent-warning', '#fbbf24')
+  const greenColor = resolveCssVar('--accent-success', '#6ba87a')
 
   const percent = Math.round(score * 100)
   const delta = previousScore !== undefined ? Math.round((score - previousScore) * 100) : null
@@ -166,13 +166,13 @@ export default function MatchGauge({ score, previousScore, label }: MatchGaugePr
           alignItems: 'center',
           gap: 6,
         }}>
-          <span style={{ color: isUp ? 'var(--accent-green)' : 'var(--accent-rose)', fontSize: 20 }}>
+          <span style={{ color: isUp ? 'var(--accent-success)' : 'var(--accent-danger)', fontSize: 20 }}>
             {isUp ? '▲' : '▼'}
           </span>
-          <span style={{ color: isUp ? 'var(--accent-green)' : 'var(--accent-rose)', fontWeight: 600 }}>
+          <span style={{ color: isUp ? 'var(--accent-success)' : 'var(--accent-danger)', fontWeight: 600 }}>
             {isUp ? '+' : ''}{delta}%
           </span>
-          <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>vs 上次</span>
+          <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>较上次</span>
         </div>
       )}
     </div>

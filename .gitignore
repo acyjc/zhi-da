@@ -29,3 +29,8 @@ backend/libs/
 *.tsbuildinfo
 
 *.pdf
+
+artifacts/
+docs/reports/
+docs/superpowers/
+local-process-docs/

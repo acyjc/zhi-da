@@ -19,17 +19,17 @@ const statusConfig: Record<Props['status'], { icon: string; border: string; bg: 
   },
   completed: {
     icon: '✓',
-    border: 'var(--accent-green)',
+    border: 'var(--accent-success)',
     bg: 'rgba(107, 168, 122, 0.08)',
-    color: 'var(--accent-green)',
-    iconBg: 'var(--accent-green)',
+    color: 'var(--accent-success)',
+    iconBg: 'var(--accent-success)',
   },
   in_progress: {
     icon: '',
-    border: 'var(--accent-blue)',
-    bg: 'rgba(91, 123, 181, 0.08)',
-    color: 'var(--accent-blue)',
-    iconBg: 'rgba(91, 123, 181, 0.2)',
+    border: 'var(--accent-primary)',
+    bg: 'rgba(0, 113, 227, 0.08)',
+    color: 'var(--accent-primary)',
+    iconBg: 'rgba(0, 113, 227, 0.2)',
   },
 }
 
@@ -86,14 +86,14 @@ const TaskCard: FC<Props> = ({ task, status, onComplete, loading }) => {
                 target="_blank"
                 rel="noreferrer"
                 style={{
-                  fontSize: 11, color: 'var(--accent-violet)',
+                  fontSize: 11, color: 'var(--accent-primary)',
                   textDecoration: 'none', padding: '2px 8px',
-                  borderRadius: 4, background: 'rgba(139,126,200,0.08)',
-                  border: '1px solid rgba(139,126,200,0.2)',
+                  borderRadius: 4, background: 'rgba(0,113,227,0.08)',
+                  border: '1px solid rgba(0,113,227,0.2)',
                   transition: 'all 0.2s',
                 }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(139,126,200,0.16)'; e.currentTarget.style.borderColor = 'var(--accent-violet)' }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(139,126,200,0.08)'; e.currentTarget.style.borderColor = 'rgba(139,126,200,0.2)' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(0,113,227,0.16)'; e.currentTarget.style.borderColor = 'var(--accent-primary)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(0,113,227,0.08)'; e.currentTarget.style.borderColor = 'rgba(0,113,227,0.2)' }}
               >
                 {res.length > 40 ? res.slice(0, 40) + '...' : res}
               </a>
@@ -116,7 +116,7 @@ const TaskCard: FC<Props> = ({ task, status, onComplete, loading }) => {
                 marginBottom: 8, outline: 'none',
                 transition: 'border-color 0.2s, background-color 0.3s, color 0.3s',
               }}
-              onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent-blue)')}
+              onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent-primary)')}
               onBlur={e => (e.currentTarget.style.borderColor = 'var(--border-light)')}
             />
             <button
@@ -125,11 +125,11 @@ const TaskCard: FC<Props> = ({ task, status, onComplete, loading }) => {
               style={{
                 padding: '6px 18px',
                 borderRadius: 6,
-                border: `1px solid ${status === 'in_progress' ? 'var(--accent-blue)' : 'var(--accent-teal)'}`,
+                border: `1px solid ${status === 'in_progress' ? 'var(--accent-primary)' : 'var(--accent-primary)'}`,
                 background: status === 'in_progress'
-                  ? 'rgba(91,123,181,0.15)'
+                  ? 'rgba(0,113,227,0.15)'
                   : 'transparent',
-                color: status === 'in_progress' ? 'var(--accent-blue)' : 'var(--accent-teal)',
+                color: status === 'in_progress' ? 'var(--accent-primary)' : 'var(--accent-primary)',
                 cursor: loading ? 'not-allowed' : 'pointer',
                 fontSize: 12, fontWeight: 600,
                 fontFamily: 'var(--font-display)',
@@ -138,10 +138,10 @@ const TaskCard: FC<Props> = ({ task, status, onComplete, loading }) => {
                 opacity: loading ? 0.6 : 1,
               }}
               onMouseEnter={e => {
-                if (!loading) { e.currentTarget.style.background = status === 'in_progress' ? 'rgba(91,123,181,0.25)' : 'rgba(90,158,143,0.15)'; e.currentTarget.style.transform = 'scale(1.03)' }
+                if (!loading) { e.currentTarget.style.background = status === 'in_progress' ? 'rgba(0,113,227,0.25)' : 'rgba(0,113,227,0.15)'; e.currentTarget.style.transform = 'scale(1.03)' }
               }}
               onMouseLeave={e => {
-                if (!loading) { e.currentTarget.style.background = status === 'in_progress' ? 'rgba(91,123,181,0.15)' : 'transparent'; e.currentTarget.style.transform = '' }
+                if (!loading) { e.currentTarget.style.background = status === 'in_progress' ? 'rgba(0,113,227,0.15)' : 'transparent'; e.currentTarget.style.transform = '' }
               }}
             >
               {loading ? '处理中...' : '标记完成'}

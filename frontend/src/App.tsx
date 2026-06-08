@@ -1,42 +1,81 @@
-import { Routes, Route, useLocation } from 'react-router-dom'
+import { lazy, Suspense } from 'react'
+import { Navigate, Routes, Route } from 'react-router-dom'
 import Home from './pages/Home'
-import ProfileInput from './pages/ProfileInput'
-import Dashboard from './pages/Dashboard'
-import AdminDashboard from './pages/AdminDashboard'
-import EnterpriseDashboard from './pages/EnterpriseDashboard'
-import NotFound from './pages/NotFound'
-import SalaryCat from './components/SalaryCat/SalaryCat'
-import IdentitySwitcher from './components/shared/IdentitySwitcher'
+import { useAppStore } from './stores/appStore'
+import { getAuthToken } from './services/api'
+import ErrorBoundary from './components/shared/ErrorBoundary'
+
+// 路由代码分割：三个门户页面懒加载
+const ProfileInput = lazy(() => import('./pages/ProfileInput'))
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard'))
+const EnterpriseDashboard = lazy(() => import('./pages/EnterpriseDashboard'))
+const NotFound = lazy(() => import('./pages/NotFound'))
+
+// 统一 Loading 占位组件
+function PageLoading() {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      height: '100vh', width: '100%',
+      background: 'var(--bg-primary)', color: 'var(--text-secondary)',
+      fontSize: 14, fontFamily: 'var(--font-display)',
+    }}>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{
+          width: 32, height: 32, border: '3px solid var(--border-light)',
+          borderTopColor: 'var(--accent-primary)', borderRadius: '50%',
+          animation: 'spin 0.8s linear infinite', margin: '0 auto 12px',
+        }} />
+        加载中...
+      </div>
+    </div>
+  )
+}
+
+function RequireStudent({ children }: { children: JSX.Element }) {
+  const { currentStudentId, student } = useAppStore()
+  const token = getAuthToken()
+  const storedStudentId = currentStudentId || student?.id || localStorage.getItem('zhida_student_id') || localStorage.getItem('student_id')
+  return (token && storedStudentId) ? children : <Navigate to="/" replace />
+}
+
+function RequireEnterprise({ children }: { children: JSX.Element }) {
+  const { currentEnterpriseId } = useAppStore()
+  const token = getAuthToken()
+  const storedEnterpriseId = currentEnterpriseId || localStorage.getItem('zhida_enterprise_id')
+  return (token && storedEnterpriseId) ? children : <Navigate to="/" replace />
+}
+
+function RequireAdmin({ children }: { children: JSX.Element }) {
+  const { role } = useAppStore()
+  const token = getAuthToken()
+  const storedRole = role || localStorage.getItem('zhida_role')
+  return (token && storedRole === 'admin') ? children : <Navigate to="/" replace />
+}
 
 export default function App() {
-  const location = useLocation()
-  const isStudentPage = location.pathname.startsWith('/student')
-  const showIdentitySwitcher = localStorage.getItem('show_identity_switcher') === '1'
-
   return (
-    <>
-      {showIdentitySwitcher && <IdentitySwitcher />}
+    <Suspense fallback={<PageLoading />}>
+      <ErrorBoundary>
+        <Routes>
+          {/* Three-Tier Portal Hub */}
+          <Route path="/" element={<Home />} />
 
-      <Routes>
-        {/* Three-Tier Portal Hub */}
-        <Route path="/" element={<Home />} />
+          {/* Student Portal */}
+          <Route path="/student/input" element={<ProfileInput />} />
+          <Route path="/student/dashboard" element={<RequireStudent><Dashboard /></RequireStudent>} />
 
-        {/* Student Portal */}
-        <Route path="/student/input" element={<ProfileInput />} />
-        <Route path="/student/dashboard" element={<Dashboard />} />
+          {/* School Admin Portal */}
+          <Route path="/admin" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
 
-        {/* School Admin Portal */}
-        <Route path="/admin" element={<AdminDashboard />} />
+          {/* Enterprise Portal */}
+          <Route path="/enterprise" element={<RequireEnterprise><EnterpriseDashboard /></RequireEnterprise>} />
 
-        {/* Enterprise Portal */}
-        <Route path="/enterprise" element={<EnterpriseDashboard />} />
-
-        {/* 404 Fallback */}
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-
-      {/* Mascot desktop cat helper - only shown on student pages */}
-      {isStudentPage && <SalaryCat />}
-    </>
+          {/* 404 Fallback */}
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </ErrorBoundary>
+    </Suspense>
   )
 }

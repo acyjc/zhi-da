@@ -25,16 +25,16 @@ export default function GapBar({ data }: GapBarProps) {
   const { theme } = useAppStore()
   const isDark = theme === 'dark'
 
-  const textColor = isDark ? '#a0a5b5' : '#6e6e73'
-  const lineColor = isDark ? '#2c2f3a' : '#e8e5df'
+  const textColor = isDark ? '#a1a1a6' : '#6e6e73'
+  const lineColor = isDark ? '#1c1c1e' : '#e5e5ea'
   const gridLineColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'
-  const tooltipBg = isDark ? 'rgba(22, 24, 29, 0.95)' : 'rgba(248, 247, 244, 0.95)'
-  const tooltipBorder = isDark ? '#2c2f3a' : '#e8e5df'
-  const tooltipText = isDark ? '#f5f6f9' : '#1d1d1f'
+  const tooltipBg = isDark ? 'rgba(28, 28, 30, 0.95)' : 'rgba(255, 255, 255, 0.95)'
+  const tooltipBorder = isDark ? '#1c1c1e' : '#e5e5ea'
+  const tooltipText = isDark ? '#f5f5f7' : '#1d1d1f'
 
-  const greenColor = isDark ? '#83bfa0' : '#6ba87a' // accent-green
-  const roseColor = isDark ? '#d695a3' : '#c47a8b'   // accent-rose
-  const grayColor = isDark ? '#6c7284' : '#aeaeb2'   // text-tertiary
+  const greenColor = isDark ? '#30d158' : '#34c759' // accent-success
+  const roseColor = isDark ? '#ff453a' : '#ff3b30'   // accent-danger
+  const grayColor = isDark ? '#636366' : '#aeaeb2'   // text-tertiary
 
   const skills = data.map((d) => d.skill).reverse()
   const currentValues = data.map((d) => d.current).reverse()
@@ -118,9 +118,9 @@ export default function GapBar({ data }: GapBarProps) {
         data: requiredValues.map((v) => ({
           value: v,
           itemStyle: {
-            color: isDark ? 'rgba(165, 154, 214, 0.2)' : 'rgba(139, 126, 200, 0.25)',
+            color: isDark ? 'rgba(10, 132, 255, 0.15)' : 'rgba(0, 113, 227, 0.15)',
             borderRadius: [0, 4, 4, 0],
-            borderColor: isDark ? '#a59ad6' : '#8b7ec8',
+            borderColor: isDark ? '#0a84ff' : '#0071e3',
             borderWidth: 1,
           },
         })),
@@ -134,7 +134,7 @@ export default function GapBar({ data }: GapBarProps) {
         data: currentValues.map((v) => ({
           value: v,
           itemStyle: {
-            color: isDark ? '#6c8ecf' : '#5b7bb5',
+            color: isDark ? '#0a84ff' : '#0071e3',
             borderRadius: [0, 4, 4, 0],
           },
         })),

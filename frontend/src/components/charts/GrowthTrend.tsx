@@ -2,13 +2,21 @@
 import ReactECharts from 'echarts-for-react'
 import { useAppStore } from '../../stores/appStore'
 
-const CHART_COLORS = ['#5b7bb5', '#5a9e8f', '#8b7ec8', '#c4944a', '#c47a8b', '#6ba87a']
+const CHART_COLORS = ['#0071e3', '#34c759', '#ff9f0a', '#ff3b30', '#af52de', '#5ac8fa']
 
 const DIMENSION_LABELS: Record<string, string> = {
-  tech_skills: '技术能力',
+  tech_skills: '技术技能',
+  tech: '技术技能',
   project_exp: '项目经验',
+  project: '项目经验',
+  academic_foundation: '学业基础',
+  academic: '学业基础',
+  domain_knowledge: '领域认知',
+  domain: '领域认知',
+  soft_skill_evidence: '软技能证据',
+  soft_evidence: '软技能证据',
   soft_skills: '软技能',
-  domain_knowledge: '领域知识',
+  soft: '软技能',
 }
 
 interface GrowthTrendProps {
@@ -28,12 +36,12 @@ export default function GrowthTrend({ history }: GrowthTrendProps) {
   const { theme } = useAppStore()
   const isDark = theme === 'dark'
 
-  const textColor = isDark ? '#a0a5b5' : '#6e6e73'
-  const lineColor = isDark ? '#2c2f3a' : '#e8e5df'
+  const textColor = isDark ? '#a1a1a6' : '#6e6e73'
+  const lineColor = isDark ? '#1c1c1e' : '#e5e5ea'
   const gridLineColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'
-  const tooltipBg = isDark ? 'rgba(22, 24, 29, 0.95)' : 'rgba(248, 247, 244, 0.95)'
-  const tooltipBorder = isDark ? '#2c2f3a' : '#e8e5df'
-  const tooltipText = isDark ? '#f5f6f9' : '#1d1d1f'
+  const tooltipBg = isDark ? 'rgba(28, 28, 30, 0.95)' : 'rgba(255, 255, 255, 0.95)'
+  const tooltipBorder = isDark ? '#1c1c1e' : '#e5e5ea'
+  const tooltipText = isDark ? '#f5f5f7' : '#1d1d1f'
 
   const dates = history.map((h) => h.date)
   const scoreKeys = history.length > 0 ? Object.keys(history[0].scores) : []

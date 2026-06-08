@@ -1,251 +1,412 @@
-// 职达三端协同入口——多端导航大厅
+import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useEffect, useState } from 'react'
-import { useAppStore } from '../stores/appStore'
+import { Briefcase, GraduationCap, LogIn, Shield, Sparkles } from 'lucide-react'
 import ThemeToggle from '../components/shared/ThemeToggle'
-import { GraduationCap, Briefcase, Shield, Target } from 'lucide-react'
+import { login, getStudent, listEnterprisesForLogin, setAuthToken } from '../services/api'
+import { useAppStore } from '../stores/appStore'
+
+type LoginRole = 'student' | 'enterprise' | 'admin'
+
+interface EnterpriseOption {
+  id: string
+  name: string
+  status?: string
+  industry?: string
+}
+
+const ROLE_TABS: { key: LoginRole; label: string; icon: JSX.Element }[] = [
+  { key: 'student', label: '学生端', icon: <GraduationCap size={15} /> },
+  { key: 'enterprise', label: '企业端', icon: <Briefcase size={15} /> },
+  { key: 'admin', label: '学校端', icon: <Shield size={15} /> },
+]
 
 export default function Home() {
   const navigate = useNavigate()
-  const [hasExistingSession, setHasExistingSession] = useState(false)
-  const { hydrateFromStorage, setRole } = useAppStore()
+  const {
+    hydrateFromStorage,
+    setRole,
+    setStudent,
+    setCurrentStudentId,
+    setCurrentEnterpriseId,
+    currentStudentId,
+    currentEnterpriseId,
+  } = useAppStore()
+
+  const [role, setSelectedRole] = useState<LoginRole>('student')
+  const [identifier, setIdentifier] = useState('')
+  const [enterprises, setEnterprises] = useState<EnterpriseOption[]>([])
+  const [loadingEnterprises, setLoadingEnterprises] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [password, setPassword] = useState('')
+  const [message, setMessage] = useState('')
 
   useEffect(() => {
     hydrateFromStorage()
-    const sid = localStorage.getItem('student_id')
-    if (sid) setHasExistingSession(true)
+  }, [hydrateFromStorage])
+
+  useEffect(() => {
+    if (role === 'student') {
+      setIdentifier(String(currentStudentId || localStorage.getItem('student_id') || ''))
+    } else if (role === 'enterprise') {
+      setIdentifier(currentEnterpriseId || '')
+    } else {
+      setIdentifier('')
+    }
+    setMessage('')
+  }, [role, currentStudentId, currentEnterpriseId])
+
+  useEffect(() => {
+    const loadEnterprises = async () => {
+      setLoadingEnterprises(true)
+      try {
+        const data = await listEnterprisesForLogin()
+        setEnterprises(data || [])
+        if (role === 'enterprise' && !identifier) {
+          const activeFirst = (data || []).find((e: EnterpriseOption) => e.status === 'active')
+          if (activeFirst?.id) {
+            setIdentifier(activeFirst.id)
+          }
+        }
+      } catch {
+        setMessage('企业列表加载失败，请确认后端服务已启动。')
+      } finally {
+        setLoadingEnterprises(false)
+      }
+    }
+    loadEnterprises()
   }, [])
 
-  const enterPortal = (role: 'student' | 'enterprise' | 'admin') => {
-    setRole(role)
-    if (role === 'student') {
-      const sid = localStorage.getItem('student_id')
-      if (sid) {
+  const selectedEnterprise = useMemo(
+    () => enterprises.find(item => item.id === identifier),
+    [enterprises, identifier],
+  )
+
+  const handleRoleChange = (nextRole: LoginRole) => {
+    setSelectedRole(nextRole)
+  }
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault()
+    setMessage('')
+    setSubmitting(true)
+
+    try {
+      if (role === 'student') {
+        if (!identifier.trim()) {
+          setRole('student')
+          navigate('/student/input')
+          return
+        }
+        const loginResult = await login('student', identifier.trim(), password)
+        setAuthToken(loginResult.access_token)
+        const student = await getStudent(loginResult.student_id || identifier.trim())
+        setStudent(student)
+        setCurrentStudentId(student.id)
+        setRole('student')
         navigate('/student/dashboard')
-      } else {
-        navigate('/student/input')
+        return
       }
-    } else if (role === 'enterprise') {
-      navigate('/enterprise')
-    } else if (role === 'admin') {
+
+      if (role === 'enterprise') {
+        if (!identifier.trim()) {
+          setMessage('请选择企业后再进入。')
+          return
+        }
+        if (selectedEnterprise && selectedEnterprise.status !== 'active') {
+          const reason = selectedEnterprise.status === 'pending'
+            ? '该企业尚未通过审核，请等待学校管理员审核。'
+            : selectedEnterprise.status === 'disabled'
+              ? '该企业已被禁用，请联系学校管理员。'
+              : '该企业状态异常，无法进入。'
+          setMessage(reason)
+          return
+        }
+        const loginResult = await login('enterprise', identifier.trim(), password)
+        setAuthToken(loginResult.access_token)
+        setCurrentEnterpriseId(identifier.trim())
+        setRole('enterprise')
+        navigate('/enterprise')
+        return
+      }
+
+      const loginResult = await login('admin', identifier.trim() || 'admin', password)
+      setAuthToken(loginResult.access_token)
+      localStorage.setItem('zhida_admin_account', identifier.trim() || 'admin')
+      setRole('admin')
       navigate('/admin')
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || ''
+      if (err?.response?.status === 404 && role === 'student') {
+        setMessage('未找到该学生，可以直接创建档案。')
+      } else if (detail) {
+        setMessage(detail)
+      } else {
+        setMessage('登录信息处理失败，请稍后重试。')
+      }
+    } finally {
+      setSubmitting(false)
     }
   }
 
-  return (
-    <div style={{
-      minHeight: '100vh',
-      background: 'var(--bg-page)',
-      transition: 'background-color 0.3s, color 0.3s',
-      color: 'var(--text-primary)',
-      display: 'flex',
-      flexDirection: 'column',
-    }}>
-      {/* Header Navigation */}
-      <nav style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '24px 56px',
-      }}>
-        <div style={{
-          fontFamily: 'var(--font-display)',
-          fontSize: 24,
-          fontWeight: 800,
-          letterSpacing: '0.04em',
-          color: 'var(--text-primary)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-        }}>
-          <Target size={24} />
-          <span>职达 AI</span>
-        </div>
+  const handleCreateStudent = () => {
+    setRole('student')
+    navigate('/student/input')
+  }
 
+  return (
+    <div className="login-page">
+      <style>{`
+        .login-submit-btn { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+        .login-submit-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,113,227,0.2) !important; }
+        .form-input { transition: border-color 0.2s, box-shadow 0.2s; }
+        .form-input:focus { border-color: var(--accent-primary) !important; box-shadow: 0 0 0 4px rgba(0,113,227,0.08) !important; outline: none; }
+      `}</style>
+
+      {/* Top Navigation */}
+      <nav className="login-topbar">
+        <div className="login-brand">
+          <div className="login-brand-mark">
+            <Sparkles size={16} color="var(--bg-page)" />
+          </div>
+          <div>
+            <div className="login-brand-name">职达</div>
+          </div>
+        </div>
         <ThemeToggle />
       </nav>
 
-      {/* Main Layout */}
-      <main style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '20px 48px 80px',
-      }}>
-        {/* Portal Title */}
-        <div style={{ textAlign: 'center', marginBottom: 48, animation: 'slideUp 0.6s ease-out' }}>
+      {/* Main Content */}
+      <div className="login-layout">
+        {/* Left: Product Introduction */}
+        <div className="login-intro">
+          <div className="login-kicker">
+            <Sparkles size={10} style={{ marginRight: 4 }} />
+            AI 驱动的五维人才评测与匹配系统
+          </div>
+
           <h1 style={{
-            fontSize: 'clamp(28px, 4vw, 42px)',
-            fontWeight: 800,
-            lineHeight: 1.2,
+            color: 'var(--text-primary)',
+            fontSize: 40, fontWeight: 700, lineHeight: 1.2,
             letterSpacing: '-0.02em',
-            margin: '0 0 12px 0',
-            background: 'linear-gradient(135deg, var(--text-primary) 30%, var(--accent-teal) 100%)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
           }}>
-            职达三端协同平台
+            精准锚定方向<br />规划成长坦途
           </h1>
-          <p style={{
-            fontSize: 'clamp(14px, 1.8vw, 16px)',
-            color: 'var(--text-secondary)',
-            maxWidth: 600,
-            margin: '0 auto',
-            lineHeight: 1.6,
-          }}>
-            基于 AI 职业成长智能体的精准校企协同闭环服务系统
+
+          <p>
+            连接学生、高校与企业。基于简历行为特征，自动构建五维能力画像，
+            匹配企业真实在招岗位，并针对核心能力差距规划每日学习路径。
           </p>
-        </div>
 
-        {/* Portal Grid */}
-        <div style={{
-          display: 'flex',
-          gap: 24,
-          width: '100%',
-          maxWidth: 1120,
-          flexWrap: 'wrap',
-          justifyContent: 'center',
-          animation: 'slideUp 0.8s ease-out 0.1s both',
-        }}>
-          {/* Card 1: Student */}
-          <div
-            className="glass-panel portal-card portal-card-student"
-            onClick={() => enterPortal('student')}
-            style={{
-              flex: '1 1 320px',
-              maxWidth: 360,
-              padding: '40px 32px',
-              borderRadius: 20,
-              background: 'var(--bg-card)',
-              border: '1px solid var(--border-light)',
-              boxShadow: 'var(--shadow-sm)',
-              cursor: 'pointer',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 20,
-            }}
-          >
-            <div style={{
-              width: 56, height: 56, borderRadius: 16,
-              background: 'rgba(91, 123, 181, 0.1)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: 'var(--accent-blue)',
-            }}>
-              <GraduationCap size={26} />
+          {/* Metric Badges */}
+          <div className="login-metrics">
+            <div>
+              <strong style={{ color: 'var(--accent-primary)' }}>5D</strong>
+              <span>多维能力画像</span>
             </div>
             <div>
-              <h3 style={{ fontSize: 19, fontWeight: 700, margin: '0 0 8px 0', color: 'var(--text-primary)' }}>学生端 (Student)</h3>
-              <p style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text-secondary)', margin: 0 }}>
-                上传简历，通过 AI 深度解析诊断，生成全维度能力画像，获取岗位匹配与成长学习路径，并可一键授权画像给意向招聘岗位。
-              </p>
-            </div>
-            <div style={{
-              marginTop: 'auto',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              fontSize: 14,
-              fontWeight: 700,
-              color: 'var(--accent-blue)',
-            }}>
-              <span>{hasExistingSession ? '继续上次诊断' : '开始 AI 职业诊断'}</span>
-              <span>→</span>
-            </div>
-          </div>
-
-          {/* Card 2: Enterprise */}
-          <div
-            className="glass-panel portal-card portal-card-enterprise"
-            onClick={() => enterPortal('enterprise')}
-            style={{
-              flex: '1 1 320px',
-              maxWidth: 360,
-              padding: '40px 32px',
-              borderRadius: 20,
-              background: 'var(--bg-card)',
-              border: '1px solid var(--border-light)',
-              boxShadow: 'var(--shadow-sm)',
-              cursor: 'pointer',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 20,
-            }}
-          >
-            <div style={{
-              width: 56, height: 56, borderRadius: 16,
-              background: 'rgba(20, 184, 166, 0.1)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: 'var(--accent-teal)',
-            }}>
-              <Briefcase size={26} />
+              <strong style={{ color: 'var(--accent-success)' }}>AI</strong>
+              <span>智能岗位匹配</span>
             </div>
             <div>
-              <h3 style={{ fontSize: 19, fontWeight: 700, margin: '0 0 8px 0', color: 'var(--text-primary)' }}>企业端 (Enterprise)</h3>
-              <p style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text-secondary)', margin: 0 }}>
-                入驻学校双选网络，提交招聘岗位并由 AI 自动提取 JD 技能要求特征，查看获得已授权学生的能力画像，快速匹配精准人才。
-              </p>
-            </div>
-            <div style={{
-              marginTop: 'auto',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              fontSize: 14,
-              fontWeight: 700,
-              color: 'var(--accent-teal)',
-            }}>
-              <span>进入企业工作台</span>
-              <span>→</span>
-            </div>
-          </div>
-
-          {/* Card 3: School Admin */}
-          <div
-            className="glass-panel portal-card portal-card-admin"
-            onClick={() => enterPortal('admin')}
-            style={{
-              flex: '1 1 320px',
-              maxWidth: 360,
-              padding: '40px 32px',
-              borderRadius: 20,
-              background: 'var(--bg-card)',
-              border: '1px solid var(--border-light)',
-              boxShadow: 'var(--shadow-sm)',
-              cursor: 'pointer',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 20,
-            }}
-          >
-            <div style={{
-              width: 56, height: 56, borderRadius: 16,
-              background: 'rgba(245, 158, 11, 0.1)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: 'var(--accent-amber)',
-            }}>
-              <Shield size={26} />
-            </div>
-            <div>
-              <h3 style={{ fontSize: 19, fontWeight: 700, margin: '0 0 8px 0', color: 'var(--text-primary)' }}>学校后台 (Admin)</h3>
-              <p style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text-secondary)', margin: 0 }}>
-                教务管理端。审核入驻企业名单与发布的岗位详情，审核 AI 岗位能力建模合理性，统计并跟踪全校学生的诊断画像指标及进展。
-              </p>
-            </div>
-            <div style={{
-              marginTop: 'auto',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              fontSize: 14,
-              fontWeight: 700,
-              color: 'var(--accent-amber)',
-            }}>
-              <span>进入教务后台</span>
-              <span>→</span>
+              <strong style={{ color: 'var(--accent-primary)' }}>360°</strong>
+              <span>成长路径规划</span>
             </div>
           </div>
         </div>
-      </main>
+
+        {/* Right: Login Panel */}
+        <div>
+          <div className="glass-panel login-panel">
+            <h2 style={{
+              fontSize: 20, fontWeight: 800, textAlign: 'center',
+              margin: '0 0 6px', color: 'var(--text-primary)',
+            }}>
+              进入职达工作台
+            </h2>
+            <p style={{
+              fontSize: 12.5, color: 'var(--text-tertiary)',
+              textAlign: 'center', margin: '0 0 24px',
+            }}>
+              登录您的账户以查看个性化诊断与招聘详情
+            </p>
+
+            {/* Role Tabs */}
+            <div className="login-role-tabs">
+              {ROLE_TABS.map(tab => {
+                const isActive = role === tab.key
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => handleRoleChange(tab.key)}
+                    className={isActive ? 'active' : ''}
+                  >
+                    {tab.icon}
+                    <span>{tab.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+
+            <form onSubmit={handleSubmit} className="login-form">
+              <div>
+                <label style={{
+                  display: 'block', fontSize: 12, fontWeight: 700,
+                  color: 'var(--text-secondary)', marginBottom: 8, paddingLeft: 2,
+                }}>
+                  {role === 'student' ? '学生 ID 凭证' : role === 'enterprise' ? '选择企业' : '学校管理员账号'}
+                </label>
+
+                {role === 'enterprise' ? (
+                  <select
+                    value={identifier}
+                    onChange={event => setIdentifier(event.target.value)}
+                    disabled={loadingEnterprises}
+                    className="form-input"
+                    style={{
+                      width: '100%', padding: '12px 14px',
+                      borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)',
+                      background: 'var(--bg-card)', color: 'var(--text-primary)',
+                      fontSize: 14, outline: 'none', cursor: 'pointer', appearance: 'auto',
+                    }}
+                  >
+                    <option value="">{loadingEnterprises ? '加载企业中...' : '请选择您的企业'}</option>
+                    {enterprises.map(item => (
+                      <option
+                        key={item.id}
+                        value={item.id}
+                        disabled={item.status !== 'active'}
+                      >
+                        {item.name}{item.status !== 'active' ? `（${item.status === 'pending' ? '待审核' : item.status === 'disabled' ? '已禁用' : item.status}）` : ''}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={identifier}
+                    onChange={event => setIdentifier(event.target.value)}
+                    placeholder={
+                      role === 'student' ? '请输入您的学生 ID，例如 1001'
+                        : '请输入学校管理员账号'
+                    }
+                    className="form-input"
+                    style={{
+                      width: '100%', padding: '12px 14px',
+                      borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)',
+                      background: 'var(--bg-card)', color: 'var(--text-primary)',
+                      fontSize: 14, outline: 'none', boxSizing: 'border-box',
+                    }}
+                  />
+                )}
+              </div>
+
+              <div>
+                <label style={{
+                  display: 'block', fontSize: 12, fontWeight: 700,
+                  color: 'var(--text-secondary)', marginBottom: 8, paddingLeft: 2,
+                }}>
+                  密码
+                </label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={event => setPassword(event.target.value)}
+                  placeholder="当前阶段无需填写密码"
+                  className="form-input"
+                  style={{
+                    width: '100%', padding: '12px 14px',
+                    borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)',
+                    background: 'var(--bg-card)', color: 'var(--text-primary)',
+                    fontSize: 14, outline: 'none', boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+
+              {role === 'enterprise' && selectedEnterprise && (
+                <div style={{
+                  display: 'flex', justifyContent: 'space-between',
+                  fontSize: 11, color: 'var(--text-tertiary)', padding: '0 2px', marginTop: -4,
+                }}>
+                  <span>行业：{selectedEnterprise.industry || '未指定'}</span>
+                  <span>编码：{selectedEnterprise.id}</span>
+                </div>
+              )}
+
+              {message && (
+                <div style={{
+                  padding: '10px 14px', borderRadius: 'var(--radius-sm)',
+                  background: 'rgba(255,59,48,0.06)',
+                  border: '1px solid rgba(255,59,48,0.15)',
+                  fontSize: 12, color: 'var(--accent-danger)', lineHeight: 1.5,
+                }}>
+                  {message}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="login-submit-btn"
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  width: '100%', padding: '13px 0', marginTop: 4,
+                  borderRadius: 'var(--radius-md)', border: 'none',
+                  background: 'var(--accent-primary)', color: '#fff',
+                  fontSize: 14, fontWeight: 700,
+                  cursor: submitting ? 'not-allowed' : 'pointer',
+                  opacity: submitting ? 0.7 : 1,
+                  boxShadow: '0 4px 16px rgba(0,113,227,0.2)',
+                }}
+              >
+                <LogIn size={15} />
+                {submitting ? '进入中...' : `进入${ROLE_TABS.find(t => t.key === role)?.label || '工作台'}`}
+              </button>
+            </form>
+
+            {role === 'student' && (
+              <div style={{ marginTop: 16, textAlign: 'center' }}>
+                <button
+                  type="button"
+                  onClick={handleCreateStudent}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '10px 20px',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1.5px solid var(--accent-success)',
+                    background: 'rgba(52,199,89,0.06)',
+                    color: 'var(--accent-success)',
+                    fontSize: 13, fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.background = 'rgba(52,199,89,0.12)'
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.background = 'rgba(52,199,89,0.06)'
+                  }}
+                >
+                  新用户创建档案
+                </button>
+                <div style={{
+                  fontSize: 11, color: 'var(--text-tertiary)', marginTop: 8,
+                }}>
+                  首次使用？创建成长档案后会自动进入学生端
+                </div>
+              </div>
+            )}
+
+            <div style={{
+              marginTop: 20, paddingTop: 14,
+              borderTop: '1px solid var(--border-subtle)',
+              textAlign: 'center', fontSize: 11, color: 'var(--text-tertiary)',
+            }}>
+              三端协同 · 智能人才诊断服务系统
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

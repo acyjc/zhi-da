@@ -3,23 +3,28 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from pydantic import BaseModel
-from datetime import datetime
+from core.utils.time import utc_now
 from db.database import get_db
 from db.models import JobPost, Enterprise, StudentAuthorization, DiagnosisResult, Student, JobAbilityModel
+from core.auth import require_student, verify_student_access, Identity
 
 router = APIRouter(prefix="/api/student", tags=["student_ext"])
 
 
 class AuthorizationCreate(BaseModel):
-    student_id: str
+    student_id: int
     job_post_id: str
     diagnosis_id: str
 
 
 # 1. 获取可投递/授权的企业审核通过的岗位列表
+# 学生端可见岗位条件：enterprise.status == 'active' AND job.status == 'approved'
 @router.get("/jobs")
-async def get_student_jobs(db: AsyncSession = Depends(get_db)):
-    # 联表查询企业名称与审核通过的岗位
+async def get_student_jobs(
+    db: AsyncSession = Depends(get_db),
+    identity: Identity = Depends(require_student),
+):
+    # 联表查询：只返回 active 企业的 approved 岗位
     stmt = (
         select(
             JobPost.id,
@@ -32,7 +37,10 @@ async def get_student_jobs(db: AsyncSession = Depends(get_db)):
             Enterprise.id.label("enterprise_id")
         )
         .join(Enterprise, JobPost.enterprise_id == Enterprise.id)
-        .where(JobPost.status == "approved")
+        .where(
+            JobPost.status == "approved",
+            Enterprise.status == "active"  # 关键：企业必须是 active 状态
+        )
         .order_by(JobPost.created_at.desc())
     )
     result = await db.execute(stmt)
@@ -53,7 +61,12 @@ async def get_student_jobs(db: AsyncSession = Depends(get_db)):
 
 # 2. 获取学生的授权记录列表
 @router.get("/authorizations")
-async def get_student_authorizations(student_id: str, db: AsyncSession = Depends(get_db)):
+async def get_student_authorizations(
+    student_id: int,
+    db: AsyncSession = Depends(get_db),
+    identity: Identity = Depends(require_student),
+):
+    verify_student_access(student_id, identity)
     stmt = (
         select(
             StudentAuthorization.id,
@@ -88,8 +101,14 @@ async def get_student_authorizations(student_id: str, db: AsyncSession = Depends
 
 
 # 3. 授权画像给指定企业岗位
+# 授权条件：enterprise.status == 'active' AND job.status == 'approved' AND diagnosis.student_id == current
 @router.post("/authorizations")
-async def create_authorization(req: AuthorizationCreate, db: AsyncSession = Depends(get_db)):
+async def create_authorization(
+    req: AuthorizationCreate,
+    db: AsyncSession = Depends(get_db),
+    identity: Identity = Depends(require_student),
+):
+    verify_student_access(req.student_id, identity)
     # 校验学生、岗位和诊断记录是否存在
     student = await db.get(Student, req.student_id)
     if not student:
@@ -103,11 +122,24 @@ async def create_authorization(req: AuthorizationCreate, db: AsyncSession = Depe
     if not diag:
         raise HTTPException(404, "Diagnosis result not found")
 
-    # 关键校验：诊断结果必须属于该学生，且岗位必须是审核通过的
+    # 关键校验：诊断结果必须属于该学生
     if diag.student_id != req.student_id:
         raise HTTPException(400, "Diagnosis result does not belong to this student")
+
+    # 岗位状态检查：必须是审核通过的
     if job_post.status != "approved":
         raise HTTPException(400, "Cannot authorize to a job post that is not approved")
+
+    # 企业状态门禁：岗位所属企业必须是 active 状态
+    enterprise = await db.get(Enterprise, job_post.enterprise_id)
+    if not enterprise:
+        raise HTTPException(404, "Enterprise not found")
+    if enterprise.status != "active":
+        raise HTTPException(
+            400,
+            f"Cannot authorize: enterprise '{enterprise.name}' is not active (status: {enterprise.status}). "
+            "Only jobs from active enterprises can be authorized."
+        )
 
     # 检查是否已有该岗位的授权记录
     stmt = select(StudentAuthorization).where(
@@ -121,7 +153,7 @@ async def create_authorization(req: AuthorizationCreate, db: AsyncSession = Depe
         # 更新已有记录
         existing.status = "active"
         existing.diagnosis_id = req.diagnosis_id
-        existing.created_at = datetime.utcnow()
+        existing.created_at = utc_now()
         existing.revoked_at = None
         auth = existing
     else:
@@ -150,13 +182,20 @@ async def create_authorization(req: AuthorizationCreate, db: AsyncSession = Depe
 
 # 4. 撤销授权
 @router.delete("/authorizations/{auth_id}")
-async def revoke_authorization(auth_id: str, db: AsyncSession = Depends(get_db)):
+async def revoke_authorization(
+    auth_id: str,
+    db: AsyncSession = Depends(get_db),
+    identity: Identity = Depends(require_student),
+):
     auth = await db.get(StudentAuthorization, auth_id)
     if not auth:
         raise HTTPException(404, "Authorization record not found")
-        
+
+    # 校验该授权记录归属当前学生
+    verify_student_access(auth.student_id, identity)
+
     auth.status = "revoked"
-    auth.revoked_at = datetime.utcnow()
+    auth.revoked_at = utc_now()
     await db.commit()
     
     return {"status": "success", "message": "Authorization revoked successfully"}

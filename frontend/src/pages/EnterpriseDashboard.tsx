@@ -1,7 +1,11 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '../stores/appStore'
-import ReactECharts from 'echarts-for-react'
-import { FileText, Users, Building2 } from 'lucide-react'
+
+const ReactECharts = React.lazy(() => import('echarts-for-react'))
+import { FileText, Users, Building2, Sparkles } from 'lucide-react'
+import ThemeToggle from '../components/shared/ThemeToggle'
+import { toast } from '../utils/toast'
 import {
   getEnterpriseProfile,
   updateEnterpriseProfile,
@@ -12,7 +16,9 @@ import {
   parseJobAbilityModel,
   submitJobReview,
   getEnterpriseCandidates,
-  getEnterpriseCandidateDetail
+  getEnterpriseCandidateDetail,
+  getAttachmentDownloadUrl,
+  clearAuth,
 } from '../services/api'
 
 interface JobPost {
@@ -32,12 +38,21 @@ interface AbilityModel {
   soft_skills: Record<string, number>
   domain_knowledge: Record<string, number>
   project_exp: Array<{ name: string; description: string }>
-  weight_config: { tech_skills: number; soft_skills: number; domain_knowledge: number }
+  weight_config: {
+    tech_skills: number
+    project_exp?: number
+    academic_foundation?: number
+    domain_knowledge: number
+    soft_skill_evidence?: number
+    soft_skills?: number
+  }
 }
 
 export default function EnterpriseDashboard() {
-  const { theme, mockEnterpriseId } = useAppStore()
-  const [activeTab, setActiveTab] = useState<'profile' | 'jobs' | 'candidates'>('jobs')
+  const { theme, currentEnterpriseId } = useAppStore()
+  const navigate = useNavigate()
+  const enterpriseId = currentEnterpriseId || '1'
+  const [activeTab, setActiveTab] = useState<'jobs' | 'candidates_for_job'>('jobs')
 
   // Theme states
   const isDark = theme === 'dark'
@@ -81,12 +96,14 @@ export default function EnterpriseDashboard() {
   const [selectedCandidate, setSelectedCandidate] = useState<any | null>(null)
   const [candDetailLoading, setCandDetailLoading] = useState(false)
   const [showCandModal, setShowCandModal] = useState(false)
+  const [candidatesJobId, setCandidatesJobId] = useState<string>('')
+  const [candidatesJobTitle, setCandidatesJobTitle] = useState<string>('')
 
   // Load profile
   const loadProfile = async () => {
     setProfileLoading(true)
     try {
-      const data = await getEnterpriseProfile(mockEnterpriseId)
+      const data = await getEnterpriseProfile(enterpriseId)
       setProfile(data)
       setProfileForm({
         name: data.name || '',
@@ -106,7 +123,7 @@ export default function EnterpriseDashboard() {
   const loadJobs = async (selectId?: string) => {
     setJobsLoading(true)
     try {
-      const data = await getEnterpriseJobs(mockEnterpriseId)
+      const data = await getEnterpriseJobs(enterpriseId)
       setJobs(data)
       if (data.length > 0) {
         const toSelect = selectId ? data.find((j: any) => j.id === selectId) : data[0]
@@ -125,11 +142,12 @@ export default function EnterpriseDashboard() {
   }
 
   // Load candidate list
-  const loadCandidates = async () => {
+  const loadCandidates = async (jobId?: string) => {
     setCandidatesLoading(true)
     try {
-      const data = await getEnterpriseCandidates(mockEnterpriseId)
-      setCandidates(data)
+      const data = await getEnterpriseCandidates(enterpriseId)
+      // 如果指定了 jobId，过滤为该岗位的候选人
+      setCandidates(jobId ? data.filter((c: any) => c.job_post_id === jobId) : data)
     } catch (err) {
       console.error('Failed to load candidates', err)
     } finally {
@@ -137,16 +155,22 @@ export default function EnterpriseDashboard() {
     }
   }
 
+  // 从岗位列表进入某岗位的候选人视图
+  const handleViewJobCandidates = (jobId: string, jobTitle: string) => {
+    setCandidatesJobId(jobId)
+    setCandidatesJobTitle(jobTitle)
+    setActiveTab('candidates_for_job')
+    loadCandidates(jobId)
+  }
+
   // Effect to load data on tab change or tenant identity swap
   useEffect(() => {
-    if (activeTab === 'profile') {
-      loadProfile()
-    } else if (activeTab === 'jobs') {
+    if (activeTab === 'jobs') {
       loadJobs()
-    } else if (activeTab === 'candidates') {
-      loadCandidates()
+    } else if (activeTab === 'candidates_for_job') {
+      loadCandidates(candidatesJobId)
     }
-  }, [activeTab, mockEnterpriseId])
+  }, [activeTab, enterpriseId])
 
   // Select job item and fetch ability model
   const handleSelectJob = async (job: JobPost) => {
@@ -155,7 +179,7 @@ export default function EnterpriseDashboard() {
     setIsCreatingJob(false)
     setDetailLoading(true)
     try {
-      const res = await getEnterpriseJobDetail(job.id, mockEnterpriseId)
+      const res = await getEnterpriseJobDetail(job.id, enterpriseId)
       setSelectedJobModel(res.ability_model)
     } catch (err) {
       console.error('Failed to load job details', err)
@@ -170,11 +194,11 @@ export default function EnterpriseDashboard() {
     e.preventDefault()
     setProfileLoading(true)
     try {
-      const updated = await updateEnterpriseProfile(mockEnterpriseId, profileForm)
+      const updated = await updateEnterpriseProfile(enterpriseId, profileForm)
       setProfile(updated)
       setIsEditingProfile(false)
     } catch (err) {
-      alert('更新企业资料失败')
+      toast.error('更新企业资料失败')
     } finally {
       setProfileLoading(false)
     }
@@ -213,14 +237,14 @@ export default function EnterpriseDashboard() {
     setJobsLoading(true)
     try {
       if (isCreatingJob) {
-        const newJob = await createEnterpriseJob(mockEnterpriseId, {
+        const newJob = await createEnterpriseJob(enterpriseId, {
           ...jobForm,
           status: 'draft' // default to draft, require AI parsing before submission
         })
         setIsCreatingJob(false)
         await loadJobs(newJob.id)
       } else if (isEditingJob && selectedJob) {
-        const updated = await updateEnterpriseJob(selectedJob.id, mockEnterpriseId, {
+        const updated = await updateEnterpriseJob(selectedJob.id, enterpriseId, {
           ...jobForm,
           status: selectedJob.status === 'rejected' ? 'draft' : selectedJob.status
         })
@@ -228,7 +252,7 @@ export default function EnterpriseDashboard() {
         await loadJobs(updated.id)
       }
     } catch (err) {
-      alert('保存岗位失败')
+      toast.error('保存岗位失败')
     } finally {
       setJobsLoading(false)
     }
@@ -238,11 +262,11 @@ export default function EnterpriseDashboard() {
   const handleParseAbilityModel = async (jobId: string) => {
     setParsingJobId(jobId)
     try {
-      const model = await parseJobAbilityModel(jobId, mockEnterpriseId)
+      const model = await parseJobAbilityModel(jobId, enterpriseId)
       setSelectedJobModel(model)
-      alert('AI 岗位能力模型解析成功！已更新雷达矩阵指标。')
+      toast.success('AI 岗位能力模型解析成功！已更新雷达矩阵指标。')
     } catch (err: any) {
-      alert(`AI 解析失败: ${err.message || err}`)
+      toast.error(`AI 解析失败: ${err.message || err}`)
     } finally {
       setParsingJobId(null)
     }
@@ -252,13 +276,13 @@ export default function EnterpriseDashboard() {
   const handleSubmitReview = async (jobId: string) => {
     setSubmittingJobId(jobId)
     try {
-      const updated = await submitJobReview(jobId, mockEnterpriseId)
+      const updated = await submitJobReview(jobId, enterpriseId)
       setSelectedJob(updated)
       // refresh jobs list to show status updates
       setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'pending_review' } : j))
-      alert('岗位已成功提交学校管理员审核！')
+      toast.success('岗位已成功提交学校管理员审核！')
     } catch (err: any) {
-      alert(`提交审核失败: ${err.message || err}`)
+      toast.error(`提交审核失败: ${err.message || err}`)
     } finally {
       setSubmittingJobId(null)
     }
@@ -268,11 +292,11 @@ export default function EnterpriseDashboard() {
   const handleViewCandidate = async (candidate: any) => {
     setCandDetailLoading(true)
     try {
-      const detail = await getEnterpriseCandidateDetail(candidate.student_id, candidate.auth_id, mockEnterpriseId)
+      const detail = await getEnterpriseCandidateDetail(candidate.student_id, candidate.auth_id, enterpriseId)
       setSelectedCandidate(detail)
       setShowCandModal(true)
     } catch (err) {
-      alert('获取候选人详细画像失败')
+      toast.error('获取候选人详细画像失败')
     } finally {
       setCandDetailLoading(false)
     }
@@ -291,16 +315,19 @@ export default function EnterpriseDashboard() {
     const reqSoft = jobAbility.soft_skills || {}
     const reqDomain = jobAbility.domain_knowledge || {}
 
-    // Fallback if empty
+    // Fallback if no specific model targets, use standard 5 dimensions
     const indicatorList = [
       ...Object.keys(reqTech).map(k => ({ name: k, max: 100, category: 'tech', val: reqTech[k] })),
       ...Object.keys(reqSoft).map(k => ({ name: k, max: 100, category: 'soft', val: reqSoft[k] })),
       ...Object.keys(reqDomain).map(k => ({ name: k, max: 100, category: 'domain', val: reqDomain[k] })),
     ]
 
-    // If no specific model targets, use standard 4 dimensions
     if (indicatorList.length === 0) {
       const dimScores = diag.dimension_scores || {}
+      const getVal = (val: any) => {
+        if (typeof val !== 'number') return 0
+        return val <= 1 ? Math.round(val * 100) : Math.round(val)
+      }
       return {
         backgroundColor: 'transparent',
         tooltip: { trigger: 'item' },
@@ -309,18 +336,25 @@ export default function EnterpriseDashboard() {
           indicator: [
             { name: '技术技能', max: 100 },
             { name: '项目经验', max: 100 },
-            { name: '软技能', max: 100 },
-            { name: '领域知识', max: 100 }
+            { name: '学业基础', max: 100 },
+            { name: '领域认知', max: 100 },
+            { name: '软技能证据', max: 100 }
           ],
           splitArea: { show: false }
         },
         series: [{
           type: 'radar',
           data: [{
-            value: [dimScores.tech_skills || 0, dimScores.project_exp || 0, dimScores.soft_skills || 0, dimScores.domain_knowledge || 0],
+            value: [
+              getVal(dimScores.tech_skills ?? dimScores.tech),
+              getVal(dimScores.project_exp ?? dimScores.project),
+              getVal(dimScores.academic_foundation ?? dimScores.academic),
+              getVal(dimScores.domain_knowledge ?? dimScores.domain),
+              getVal(dimScores.soft_skill_evidence ?? dimScores.soft_evidence)
+            ],
             name: '学生画像',
-            areaStyle: { color: 'rgba(90, 158, 143, 0.3)' },
-            lineStyle: { color: '#5a9e8f' }
+            areaStyle: { color: 'rgba(0,113,227, 0.3)' },
+            lineStyle: { color: '#0071e3' }
           }]
         }]
       }
@@ -352,12 +386,12 @@ export default function EnterpriseDashboard() {
     const jobValues = indicators.map(ind => ind.val)
 
     return {
-      color: ['#5a9e8f', '#8b7ec8'],
+      color: ['#0071e3', '#0071e3'],
       backgroundColor: 'transparent',
       tooltip: {
         trigger: 'axis',
         backgroundColor: isDark ? 'rgba(22, 24, 29, 0.95)' : 'rgba(248, 247, 244, 0.95)',
-        borderColor: isDark ? '#2c2f3a' : '#e8e5df',
+        borderColor: isDark ? '#2c2f3a' : '#e5e5ea',
         textStyle: { color: isDark ? '#f5f6f9' : '#1d1d1f', fontSize: 13 },
       },
       legend: {
@@ -382,8 +416,8 @@ export default function EnterpriseDashboard() {
               : ['rgba(0, 0, 0, 0.02)', 'rgba(0, 0, 0, 0.005)']
           }
         },
-        splitLine: { lineStyle: { color: isDark ? '#2c2f3a' : '#e8e5df' } },
-        axisLine: { lineStyle: { color: isDark ? '#2c2f3a' : '#e8e5df' } }
+        splitLine: { lineStyle: { color: isDark ? '#2c2f3a' : '#e5e5ea' } },
+        axisLine: { lineStyle: { color: isDark ? '#2c2f3a' : '#e5e5ea' } }
       },
       series: [
         {
@@ -394,7 +428,7 @@ export default function EnterpriseDashboard() {
               name: '学生掌握能力',
               symbol: 'circle',
               symbolSize: 5,
-              areaStyle: { color: 'rgba(90, 158, 143, 0.25)' },
+              areaStyle: { color: 'rgba(0,113,227, 0.25)' },
               lineStyle: { width: 2 }
             },
             {
@@ -402,7 +436,7 @@ export default function EnterpriseDashboard() {
               name: '岗位特征要求',
               symbol: 'none',
               lineStyle: { type: 'dashed', width: 1.5 },
-              areaStyle: { color: 'rgba(139, 126, 200, 0.08)' }
+              areaStyle: { color: 'rgba(0,113,227, 0.08)' }
             }
           ]
         }
@@ -426,7 +460,7 @@ export default function EnterpriseDashboard() {
         trigger: 'axis',
         axisPointer: { type: 'shadow' },
         backgroundColor: isDark ? 'rgba(22, 24, 29, 0.95)' : 'rgba(248, 247, 244, 0.95)',
-        borderColor: isDark ? '#2c2f3a' : '#e8e5df',
+        borderColor: isDark ? '#2c2f3a' : '#e5e5ea',
         textStyle: { color: isDark ? '#f5f6f9' : '#1d1d1f' }
       },
       grid: {
@@ -440,13 +474,13 @@ export default function EnterpriseDashboard() {
         type: 'value',
         max: 100,
         min: -100,
-        splitLine: { lineStyle: { color: isDark ? '#2c2f3a' : '#e8e5df' } },
+        splitLine: { lineStyle: { color: isDark ? '#2c2f3a' : '#e5e5ea' } },
         axisLabel: { color: isDark ? '#a0a5b5' : '#6e6e73' }
       },
       yAxis: {
         type: 'category',
         data: sortedGaps.map(g => g.skill_name || g.name),
-        axisLine: { lineStyle: { color: isDark ? '#2c2f3a' : '#e8e5df' } },
+        axisLine: { lineStyle: { color: isDark ? '#2c2f3a' : '#e5e5ea' } },
         axisLabel: { color: isDark ? '#a0a5b5' : '#6e6e73', fontSize: 11 }
       },
       series: [
@@ -458,7 +492,7 @@ export default function EnterpriseDashboard() {
             return {
               value: val,
               itemStyle: {
-                color: val >= 0 ? '#6ba87a' : '#c47a8b',
+                color: val >= 0 ? '#34c759' : '#ff3b30',
                 borderRadius: [0, 4, 4, 0]
               }
             }
@@ -474,688 +508,821 @@ export default function EnterpriseDashboard() {
   }
 
   return (
-    <div className="portal-shell">
-      {/* Sidebar */}
-      <aside className="portal-sidebar">
-        <div>
-          <div className="portal-sidebar-brand">
-            职达 · 企业端
+    <>
+      <style>{`
+        .ed-job-item {
+          padding: var(--space-md) var(--space-lg);
+          border-bottom: 1px solid var(--border-light);
+          cursor: pointer;
+          transition: background 0.2s, border-color 0.2s;
+          border-left: 3px solid transparent;
+        }
+        .ed-job-item:hover {
+          background: var(--bg-hover);
+        }
+        .ed-job-item.active {
+          background: var(--bg-hover);
+          border-left-color: var(--accent-primary);
+        }
+        .ed-job-item.active .ed-job-title {
+          color: var(--accent-primary);
+        }
+        .ed-job-title {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .ed-close-btn {
+          background: transparent;
+          border: none;
+          font-size: 24px;
+          cursor: pointer;
+          color: var(--text-secondary);
+          transition: color 0.15s;
+        }
+        .ed-close-btn:hover {
+          color: var(--text-primary);
+        }
+        .ed-progress-track {
+          height: 4px;
+          width: 100%;
+          background: var(--bg-hover);
+          border-radius: var(--radius-sm);
+        }
+        .ed-progress-fill-teal {
+          height: 100%;
+          background: var(--accent-teal);
+          border-radius: var(--radius-sm);
+          transition: width 0.3s ease;
+        }
+        .ed-progress-fill-blue {
+          height: 100%;
+          background: var(--accent-primary);
+          border-radius: var(--radius-sm);
+          transition: width 0.3s ease;
+        }
+        .ed-rejected-banner {
+          background: rgba(255,59,48, 0.08);
+          border: 1px solid rgba(255,59,48, 0.2);
+          padding: var(--space-sm) var(--space-md);
+          border-radius: var(--radius-sm);
+          color: var(--accent-danger);
+          font-size: 13px;
+        }
+        .ed-jd-pre {
+          padding: var(--space-md);
+          border-radius: var(--radius-sm);
+          background: var(--bg-hover);
+          border: 1px solid var(--border-light);
+          font-size: 12px;
+          line-height: 1.5;
+          white-space: pre-wrap;
+          font-family: var(--font-mono);
+          color: var(--text-primary);
+          max-height: 280px;
+          overflow-y: auto;
+        }
+        .ed-evidence-quote {
+          padding: var(--space-xs) var(--space-sm);
+          border-radius: var(--radius-xs);
+          background: var(--bg-card);
+          font-size: 11px;
+          line-height: 1.3;
+          color: var(--text-secondary);
+          border-left: 2px solid var(--accent-primary);
+        }
+        .ed-risk-card {
+          padding: var(--space-lg);
+          border-radius: var(--radius-md);
+        }
+        .ed-risk-card-danger {
+          border: 1px solid rgba(255,59,48, 0.3);
+          background: rgba(255,59,48, 0.04);
+        }
+        .ed-risk-card-safe {
+          border: 1px solid rgba(52,199,89, 0.3);
+          background: rgba(52,199,89, 0.04);
+        }
+        .ed-soft-level {
+          font-size: 9.5px;
+          font-weight: 600;
+          padding: 1px 5px;
+          border-radius: 3px;
+        }
+        .ed-contact-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: var(--space-lg);
+          background: var(--bg-hover);
+          padding: var(--space-md);
+          border-radius: var(--radius-sm);
+        }
+        .ed-weight-grid {
+          background: var(--bg-hover);
+          padding: var(--space-sm);
+          border-radius: var(--radius-sm);
+          display: grid;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap: var(--space-sm);
+          font-size: 11px;
+        }
+        .ed-soft-jd-grid {
+          display: grid;
+          grid-template-columns: 1fr 1.2fr;
+          gap: var(--space-sm);
+          background: var(--bg-hover);
+          padding: var(--space-sm);
+          border-radius: var(--radius-sm);
+          font-size: 11px;
+        }
+        .ed-actions-footer {
+          padding: var(--space-md) var(--space-xl);
+          border-top: 1px solid var(--border-light);
+          background: var(--bg-hover);
+          display: flex;
+          justify-content: flex-end;
+          gap: var(--space-sm);
+        }
+        .ed-course-tag {
+          padding: 2px 8px;
+          border-radius: var(--radius-xs);
+          font-size: 11px;
+          background: var(--bg-card);
+          border: 1px solid var(--border-light);
+          color: var(--text-primary);
+        }
+        .ed-project-card {
+          border: 1px solid var(--border-light);
+          padding: var(--space-sm);
+          border-radius: var(--radius-sm);
+          font-size: 12px;
+        }
+        .ed-ai-card {
+          border: 1px solid var(--accent-primary);
+          background: rgba(0,113,227, 0.05);
+          padding: var(--space-lg);
+          border-radius: var(--radius-md);
+        }
+        .ed-bg-section {
+          background: var(--bg-hover);
+          padding: var(--space-lg);
+          border-radius: var(--radius-md);
+        }
+      `}</style>
+
+      <div className="bento-dashboard">
+        {/* Topbar */}
+        <div className="bento-topbar">
+          <div className="bento-topbar-brand">
+            <button className="brand-link" onClick={() => navigate('/')}>
+              <span className="brand-link-mark"><Sparkles size={14} /></span>
+              职达
+            </button>
+            <span className="brand-divider" />
+            <Building2 size={20} />
+            <span>企业工作台</span>
+            {profile?.name && (
+              <span className="tag tag-blue" style={{ marginLeft: 'var(--space-sm)' }}>
+                {profile.name}
+              </span>
+            )}
+            <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
+              {profile?.name || enterpriseId}
+            </span>
           </div>
-          <div className="portal-sidebar-sub">
-            岗位发布与授权筛选中心
+          <div className="bento-topbar-actions">
+            <ThemeToggle />
+            <button className="btn btn-ghost btn-sm" onClick={() => { clearAuth(); navigate('/') }}>
+              退出
+            </button>
           </div>
         </div>
 
-        {/* Navigation Items */}
-        <nav className="portal-sidebar-nav">
+        {/* Navigation Tabs */}
+        <div className="bento-nav-tabs">
           {[
-            { id: 'jobs', label: '在招岗位管理', icon: <FileText size={18} /> },
-            { id: 'candidates', label: '候选人匹配', icon: <Users size={18} /> },
-            { id: 'profile', label: '企业资料编辑', icon: <Building2 size={18} /> },
-          ].map((item) => (
+            { id: 'jobs', label: '岗位管理', icon: <FileText size={14} /> },
+          ].map((tab) => (
             <button
-              key={item.id}
-              onClick={() => setActiveTab(item.id as any)}
-              className={`nav-item ${activeTab === item.id ? 'active' : ''}`}
-              style={activeTab === item.id ? { color: 'var(--accent-teal)' } : undefined}
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`bento-nav-tab ${activeTab === tab.id ? 'active' : ''}`}
             >
-              {item.icon}
-              <span>{item.label}</span>
+              {tab.icon}
+              <span>{tab.label}</span>
             </button>
           ))}
-        </nav>
-
-        <div className="portal-sidebar-footer">
-          <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>当前企业编号 (Mock ID):</div>
-          <div style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{mockEnterpriseId}</div>
-        </div>
-      </aside>
-
-      {/* Main Content Area */}
-      <main className="portal-main">
-        <header className="portal-header">
-          <div>
-            <h1>
-              {activeTab === 'profile' && '企业资料编辑'}
-              {activeTab === 'jobs' && '在招岗位管理'}
-              {activeTab === 'candidates' && '已授权候选人列表'}
-            </h1>
-            <p>
-              {activeTab === 'profile' && '完善企业详细信息以向全校展示'}
-              {activeTab === 'jobs' && '发布招聘岗位并由 AI 自动解析岗位能力特征模型'}
-              {activeTab === 'candidates' && '按匹配度排序查看已授权候选人画像及技能差距'}
-            </p>
-          </div>
-          {activeTab === 'jobs' && !isEditingJob && !isCreatingJob && (
-            <button className="btn btn-primary" onClick={handleStartCreateJob} style={{ background: 'var(--accent-teal)' }}>
-              + 发布新岗位
+          {activeTab === 'candidates_for_job' && (
+            <button className="bento-nav-tab active" style={{ cursor: 'default' }}>
+              <Users size={14} />
+              <span>候选人 · {candidatesJobTitle}</span>
             </button>
           )}
-        </header>
+        </div>
 
-        {/* Tab content 1: Profile */}
-        {activeTab === 'profile' && (
-          <div className="glass-panel" style={{
-            padding: 30,
-            borderRadius: 16,
-            background: 'var(--bg-card)',
-            border: '1px solid var(--border-light)',
-            boxShadow: 'var(--shadow-sm)',
-            maxWidth: 680,
-          }}>
-            {profileLoading ? (
-              <div style={{ textAlign: 'center', padding: 20 }}>加载中...</div>
-            ) : isEditingProfile ? (
-              <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <label style={{ fontSize: 13, fontWeight: 600 }}>企业名称 *</label>
-                  <input
-                    type="text"
-                    required
-                    value={profileForm.name}
-                    onChange={e => setProfileForm({ ...profileForm, name: e.target.value })}
-                    style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-light)', background: 'var(--bg-page)', color: 'var(--text-primary)', outline: 'none' }}
-                  />
+        {/* Content Area */}
+        <div className="bento-content">
+
+          {/* ===== Tab: Jobs ===== */}
+          {activeTab === 'jobs' && (
+            <div style={{ display: 'flex', gap: 'var(--space-xl)', minHeight: '520px', maxHeight: 'calc(100vh - 200px)', alignItems: 'stretch' }}>
+              {/* Left Column: Job List */}
+              <div className="surface-card" style={{
+                width: 320,
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                padding: 0,
+              }}>
+                <div style={{ padding: 'var(--space-md)', borderBottom: '1px solid var(--border-light)', fontWeight: 700, fontSize: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>岗位列表 ({jobs.length})</span>
+                  {!isEditingJob && !isCreatingJob && (
+                    <button className="btn btn-primary btn-sm" onClick={handleStartCreateJob}>
+                      + 发布新岗位
+                    </button>
+                  )}
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <label style={{ fontSize: 13, fontWeight: 600 }}>所属行业</label>
-                  <input
-                    type="text"
-                    value={profileForm.industry}
-                    onChange={e => setProfileForm({ ...profileForm, industry: e.target.value })}
-                    style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-light)', background: 'var(--bg-page)', color: 'var(--text-primary)', outline: 'none' }}
-                  />
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <label style={{ fontSize: 13, fontWeight: 600 }}>企业介绍</label>
-                  <textarea
-                    rows={4}
-                    value={profileForm.description}
-                    onChange={e => setProfileForm({ ...profileForm, description: e.target.value })}
-                    style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-light)', background: 'var(--bg-page)', color: 'var(--text-primary)', outline: 'none', resize: 'vertical' }}
-                  />
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <label style={{ fontSize: 13, fontWeight: 600 }}>联系人姓名</label>
-                    <input
-                      type="text"
-                      value={profileForm.contact_name}
-                      onChange={e => setProfileForm({ ...profileForm, contact_name: e.target.value })}
-                      style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-light)', background: 'var(--bg-page)', color: 'var(--text-primary)', outline: 'none' }}
-                    />
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <label style={{ fontSize: 13, fontWeight: 600 }}>联系人邮箱</label>
-                    <input
-                      type="email"
-                      value={profileForm.contact_email}
-                      onChange={e => setProfileForm({ ...profileForm, contact_email: e.target.value })}
-                      style={{ padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border-light)', background: 'var(--bg-page)', color: 'var(--text-primary)', outline: 'none' }}
-                    />
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 12, marginTop: 10 }}>
-                  <button type="submit" className="btn btn-primary" style={{ background: 'var(--accent-teal)' }}>保存资料</button>
-                  <button type="button" className="btn btn-ghost" onClick={() => setIsEditingProfile(false)}>取消</button>
-                </div>
-              </form>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-                <div style={{ borderBottom: '1px solid var(--border-light)', paddingBottom: 16 }}>
-                  <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>{profile?.name || '新企业'}</h2>
-                  <span style={{ fontSize: 12, color: 'var(--accent-teal)', fontWeight: 600, display: 'inline-block', marginTop: 4 }}>
-                    📍 {profile?.industry || '未填写行业'}
-                  </span>
-                </div>
-                <div>
-                  <h4 style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>企业简介</h4>
-                  <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>
-                    {profile?.description || '暂无企业介绍信息，点击编辑进行完善。'}
-                  </p>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, background: 'var(--bg-hover)', padding: 16, borderRadius: 10 }}>
-                  <div>
-                    <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>联系人</span>
-                    <div style={{ fontSize: 14, fontWeight: 600, marginTop: 2 }}>{profile?.contact_name || '未填写'}</div>
-                  </div>
-                  <div>
-                    <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>联系邮箱</span>
-                    <div style={{ fontSize: 14, fontWeight: 600, marginTop: 2 }}>{profile?.contact_email || '未填写'}</div>
-                  </div>
-                </div>
-                <div>
-                  <button className="btn btn-ghost" onClick={() => setIsEditingProfile(true)}>编辑企业资料</button>
+                <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+                  {jobsLoading ? (
+                    <div className="empty-state">加载中...</div>
+                  ) : jobs.length === 0 ? (
+                    <div className="empty-state">
+                      暂无发布岗位，请点击右上角发布。
+                    </div>
+                  ) : (
+                    jobs.map((job) => {
+                      const isActive = selectedJob?.id === job.id
+                      return (
+                        <div
+                          key={job.id}
+                          onClick={() => handleSelectJob(job)}
+                          className={`ed-job-item ${isActive ? 'active' : ''}`}
+                        >
+                          <div className="ed-job-title" style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{job.title}</div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 'var(--space-sm)' }}>
+                            <span className="tag tag-gray">{job.category}</span>
+                            <span className={`badge ${
+                              job.status === 'approved' ? 'badge-success' :
+                              job.status === 'pending_review' ? 'badge-warning' :
+                              job.status === 'rejected' ? 'badge-danger' :
+                              job.status === 'disabled' ? 'badge-gray' :
+                              'badge-gray'
+                            }`}>
+                              {job.status === 'approved' && '已发布'}
+                              {job.status === 'pending_review' && '审核中'}
+                              {job.status === 'rejected' && '已驳回'}
+                              {job.status === 'draft' && '草稿'}
+                              {job.status === 'disabled' && '已下线'}
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
                 </div>
               </div>
-            )}
-          </div>
-        )}
 
-        {/* Tab content 2: Jobs Listing & AI model parsing */}
-        {activeTab === 'jobs' && (
-          <div style={{ display: 'flex', gap: 28, height: '620px', alignItems: 'stretch' }}>
-            {/* Left Column: Job List */}
-            <div className="glass-panel" style={{
-              width: 320,
-              background: 'var(--bg-card)',
-              border: '1px solid var(--border-light)',
-              borderRadius: 16,
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden'
-            }}>
-              <div style={{ padding: 16, borderBottom: '1px solid var(--border-light)', fontWeight: 700, fontSize: 14 }}>
-                岗位列表 ({jobs.length})
-              </div>
-              <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-                {jobsLoading ? (
-                  <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-tertiary)' }}>加载中...</div>
-                ) : jobs.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-tertiary)', fontSize: 13 }}>
-                    🏢 暂无发布岗位，请点击右上角发布。
-                  </div>
-                ) : (
-                  jobs.map((job) => {
-                    const isActive = selectedJob?.id === job.id
-                    return (
-                      <div
-                        key={job.id}
-                        onClick={() => handleSelectJob(job)}
-                        style={{
-                          padding: '16px 20px',
-                          borderBottom: '1px solid var(--border-light)',
-                          cursor: 'pointer',
-                          background: isActive ? 'var(--bg-hover)' : 'transparent',
-                          borderLeft: isActive ? '3px solid var(--accent-teal)' : 'none',
-                          transition: 'all 0.2s',
-                        }}
-                      >
-                        <div style={{ fontWeight: 600, fontSize: 14, color: isActive ? 'var(--accent-teal)' : 'var(--text-primary)' }}>{job.title}</div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-                          <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{job.category}</span>
+              {/* Right Column: Detail Panel or Create/Edit Form */}
+              <div className="surface-card" style={{
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                padding: 0,
+              }}>
+                {isCreatingJob || isEditingJob ? (
+                  /* Form */
+                  <form onSubmit={handleSaveJob} style={{ padding: 'var(--space-xl)', display: 'flex', flexDirection: 'column', gap: 'var(--space-md)', overflowY: 'auto', flex: 1 }}>
+                    <div className="section-label">
+                      {isCreatingJob ? '发布新岗位招聘' : '编辑岗位信息'}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 'var(--space-md)' }}>
+                      <div className="form-group">
+                        <label>岗位名称 *</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="例如：Go后端开发工程师"
+                          value={jobForm.title}
+                          onChange={e => setJobForm({ ...jobForm, title: e.target.value })}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>岗位类别 *</label>
+                        <select
+                          value={jobForm.category}
+                          onChange={e => setJobForm({ ...jobForm, category: e.target.value })}
+                        >
+                          <option value="后端开发">后端开发</option>
+                          <option value="前端开发">前端开发</option>
+                          <option value="人工智能">人工智能</option>
+                          <option value="移动端开发">移动端开发</option>
+                          <option value="测试与运维">测试与运维</option>
+                          <option value="产品与运营">产品与运营</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="form-group">
+                      <label>岗位职责介绍</label>
+                      <textarea
+                        rows={3}
+                        placeholder="主要职责描述..."
+                        value={jobForm.description}
+                        onChange={e => setJobForm({ ...jobForm, description: e.target.value })}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label>技能要求与经历要求 *</label>
+                      <textarea
+                        rows={5}
+                        required
+                        placeholder={"请详细填写岗位招聘要求，以便 AI 提取合理的雷达图模型。例如：\n1. 熟练掌握 React, TypeScript, TailwindCSS\n2. 熟悉 RESTful API 设计与交互数据交互\n3. 有完整独立前端项目开发经验优先"}
+                        value={jobForm.requirements_text}
+                        onChange={e => setJobForm({ ...jobForm, requirements_text: e.target.value })}
+                        style={{ fontFamily: 'var(--font-mono)' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: 'var(--space-sm)', marginTop: 'var(--space-sm)' }}>
+                      <button type="submit" className="btn btn-primary">保存并进入下一步</button>
+                      <button type="button" className="btn btn-ghost" onClick={() => {
+                        setIsCreatingJob(false)
+                        setIsEditingJob(false)
+                        if (jobs.length > 0) handleSelectJob(jobs[0])
+                      }}>取消</button>
+                    </div>
+                  </form>
+                ) : selectedJob ? (
+                  /* Details Panel */
+                  <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+                    {/* Job Header */}
+                    <div style={{ padding: 'var(--space-xl)', borderBottom: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }}>
+                          <h2 className="section-title" style={{ margin: 0 }}>{selectedJob.title}</h2>
                           <span className={`badge ${
-                            job.status === 'approved' ? 'badge-green' :
-                            job.status === 'pending_review' ? 'badge-amber' :
-                            job.status === 'rejected' ? 'badge-rose' :
+                            selectedJob.status === 'approved' ? 'badge-success' :
+                            selectedJob.status === 'pending_review' ? 'badge-warning' :
+                            selectedJob.status === 'rejected' ? 'badge-danger' :
                             'badge-gray'
                           }`}>
-                            {job.status === 'approved' && '已发布'}
-                            {job.status === 'pending_review' && '审核中'}
-                            {job.status === 'rejected' && '已驳回'}
-                            {job.status === 'draft' && '草稿'}
+                            {selectedJob.status === 'approved' && '学校已审核通过 · 招聘中'}
+                            {selectedJob.status === 'pending_review' && '教务审核中'}
+                            {selectedJob.status === 'rejected' && '已驳回'}
+                            {selectedJob.status === 'draft' && '草稿阶段 (尚未提交审核)'}
                           </span>
                         </div>
+                        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 'var(--space-xs)' }}>
+                          <span className="tag tag-gray">岗位品类：{selectedJob.category}</span>
+                        </div>
                       </div>
-                    )
-                  })
+                      {(selectedJob.status === 'draft' || selectedJob.status === 'rejected') && (
+                        <button className="btn btn-ghost btn-sm" onClick={handleStartEditJob}>
+                          编辑岗位
+                        </button>
+                      )}
+                      {selectedJob.status === 'approved' && (
+                        <button className="btn btn-primary btn-sm" onClick={() => handleViewJobCandidates(selectedJob.id, selectedJob.title)}>
+                          查看授权候选人
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Detail contents */}
+                    <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--space-xl)', display: 'flex', flexDirection: 'column', gap: 'var(--space-xl)' }}>
+                      {selectedJob.status === 'rejected' && selectedJob.review_reason && (
+                        <div className="ed-rejected-banner" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
+                          <div><strong>驳回原因：</strong>{selectedJob.review_reason}</div>
+                          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                            请根据以上原因修改岗位信息后，重新提交学校审核。点击上方「编辑岗位」按钮即可开始修改。
+                          </div>
+                        </div>
+                      )}
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 'var(--space-xl)' }}>
+                        {/* Left Part: Description & JD */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
+                          <div>
+                            <div className="section-label">岗位简介</div>
+                            <p style={{ fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{selectedJob.description || '暂无简介'}</p>
+                          </div>
+                          <div>
+                            <div className="section-label">招聘描述与技能要求</div>
+                            <pre className="ed-jd-pre">{selectedJob.requirements_text}</pre>
+                          </div>
+                        </div>
+
+                        {/* Right Part: Ability Model */}
+                        <div>
+                          <div className="section-label">AI 解析能力指标模型</div>
+                          {detailLoading ? (
+                            <div className="empty-state">获取指标模型中...</div>
+                          ) : !selectedJobModel ? (
+                            <div className="solid-card" style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-sm)' }}>
+                              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>您尚未提取该岗位的能力指标特征</span>
+                              <button
+                                onClick={() => handleParseAbilityModel(selectedJob.id)}
+                                disabled={parsingJobId === selectedJob.id}
+                                className="btn btn-primary btn-sm"
+                              >
+                                {parsingJobId === selectedJob.id ? '大模型提取中...' : '智能体提取能力指标'}
+                              </button>
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
+                              {/* Tech Skills progress */}
+                              <div>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 'var(--space-xs)' }}>技术技能要求</div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-xs)' }}>
+                                  {Object.entries(selectedJobModel.tech_skills).map(([skill, val]) => (
+                                    <div key={skill} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+                                        <span>{skill}</span>
+                                        <span style={{ fontWeight: 600 }}>{val}分</span>
+                                      </div>
+                                      <div className="ed-progress-track">
+                                        <div className="ed-progress-fill-teal" style={{ width: `${val}%` }} />
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Domain Knowledge progress */}
+                              <div>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 'var(--space-xs)' }}>领域知识要求</div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-xs)' }}>
+                                  {Object.entries(selectedJobModel.domain_knowledge).map(([dom, val]) => (
+                                    <div key={dom} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+                                        <span>{dom}</span>
+                                        <span style={{ fontWeight: 600 }}>{val}分</span>
+                                      </div>
+                                      <div className="ed-progress-track">
+                                        <div className="ed-progress-fill-blue" style={{ width: `${val}%` }} />
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+
+                              {/* Soft skills & project exp */}
+                              <div className="ed-soft-jd-grid">
+                                <div>
+                                  <strong style={{ color: 'var(--text-secondary)' }}>核心软技能：</strong>
+                                  <div style={{ marginTop: 'var(--space-xs)' }}>
+                                    {Object.keys(selectedJobModel.soft_skills).join(' / ') || '未提取'}
+                                  </div>
+                                </div>
+                                <div>
+                                  <strong style={{ color: 'var(--text-secondary)' }}>核心项目经历要求：</strong>
+                                  <div style={{ marginTop: 'var(--space-xs)', maxHeight: 60, overflowY: 'auto' }}>
+                                    {selectedJobModel.project_exp.map((p, idx) => (
+                                      <div key={idx} style={{ color: 'var(--text-primary)', marginBottom: 2 }}>
+                                        {p.name}
+                                      </div>
+                                    )) || '无'}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Weight Configuration */}
+                              <div className="ed-weight-grid">
+                                <div>技术: <strong>{Math.round((selectedJobModel.weight_config?.tech_skills || 0) * 100)}%</strong></div>
+                                <div>项目: <strong>{Math.round((selectedJobModel.weight_config?.project_exp || 0) * 100)}%</strong></div>
+                                <div>学业: <strong>{Math.round((selectedJobModel.weight_config?.academic_foundation || 0) * 100)}%</strong></div>
+                                <div>领域: <strong>{Math.round((selectedJobModel.weight_config?.domain_knowledge || 0) * 100)}%</strong></div>
+                                <div>软证据: <strong>{Math.round(((selectedJobModel.weight_config?.soft_skill_evidence ?? selectedJobModel.weight_config?.soft_skills) || 0) * 100)}%</strong></div>
+                              </div>
+
+                              {/* Re-parse button */}
+                              <button
+                                onClick={() => handleParseAbilityModel(selectedJob.id)}
+                                disabled={parsingJobId === selectedJob.id}
+                                className="btn btn-ghost btn-sm"
+                                style={{ width: '100%', borderStyle: 'dashed' }}
+                              >
+                                {parsingJobId === selectedJob.id ? '大模型重新提取中...' : '重新进行 AI 解析建模'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Actions Footer */}
+                    {selectedJobModel && (selectedJob.status === 'draft' || selectedJob.status === 'rejected') && (
+                      <div className="ed-actions-footer">
+                        <span style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}>
+                          对指标模型满意后，即可提交学校审核：
+                        </span>
+                        <button
+                          onClick={() => handleSubmitReview(selectedJob.id)}
+                          disabled={submittingJobId === selectedJob.id}
+                          className="btn btn-primary"
+                        >
+                          {submittingJobId === selectedJob.id ? '提交中...' : '提交学校教务审核'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="empty-state" style={{ flex: 1 }}>
+                    <span style={{ fontSize: 40 }}>📄</span>
+                    <span>请在左侧选择一个在招岗位或创建新岗位。</span>
+                  </div>
                 )}
               </div>
             </div>
+          )}
 
-            {/* Right Column: Detail Panel or Create/Edit Form */}
-            <div className="glass-panel" style={{
-              flex: 1,
-              background: 'var(--bg-card)',
-              border: '1px solid var(--border-light)',
-              borderRadius: 16,
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden'
-            }}>
-              {isCreatingJob || isEditingJob ? (
-                /* Form */
-                <form onSubmit={handleSaveJob} style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto', flex: 1 }}>
-                  <h3 style={{ fontSize: 16, fontWeight: 700, borderBottom: '1px solid var(--border-light)', paddingBottom: 10, marginBottom: 10 }}>
-                    {isCreatingJob ? '发布新岗位招聘' : '编辑岗位信息'}
-                  </h3>
-                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <label style={{ fontSize: 12, fontWeight: 600 }}>岗位名称 *</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="例如：Go后端开发工程师"
-                        value={jobForm.title}
-                        onChange={e => setJobForm({ ...jobForm, title: e.target.value })}
-                        style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-light)', background: 'var(--bg-page)', color: 'var(--text-primary)', outline: 'none', fontSize: 13 }}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <label style={{ fontSize: 12, fontWeight: 600 }}>岗位类别 *</label>
-                      <select
-                        value={jobForm.category}
-                        onChange={e => setJobForm({ ...jobForm, category: e.target.value })}
-                        style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-light)', background: 'var(--bg-page)', color: 'var(--text-primary)', outline: 'none', fontSize: 13 }}
-                      >
-                        <option value="后端开发">后端开发</option>
-                        <option value="前端开发">前端开发</option>
-                        <option value="人工智能">人工智能</option>
-                        <option value="移动端开发">移动端开发</option>
-                        <option value="测试与运维">测试与运维</option>
-                        <option value="产品与运营">产品与运营</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <label style={{ fontSize: 12, fontWeight: 600 }}>岗位职责介绍</label>
-                    <textarea
-                      rows={3}
-                      placeholder="主要职责描述..."
-                      value={jobForm.description}
-                      onChange={e => setJobForm({ ...jobForm, description: e.target.value })}
-                      style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-light)', background: 'var(--bg-page)', color: 'var(--text-primary)', outline: 'none', resize: 'vertical', fontSize: 13 }}
-                    />
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <label style={{ fontSize: 12, fontWeight: 600 }}>技能要求 & 经历要求 JD *</label>
-                    <textarea
-                      rows={5}
-                      required
-                      placeholder="请详细填写岗位招聘要求，以便 AI 提取合理的雷达图模型。例如：&#10;1. 熟练掌握 React, TypeScript, TailwindCSS&#10;2. 熟悉 RESTful API 设计与交互数据交互&#10;3. 有完整独立前端项目开发经验优先"
-                      value={jobForm.requirements_text}
-                      onChange={e => setJobForm({ ...jobForm, requirements_text: e.target.value })}
-                      style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-light)', background: 'var(--bg-page)', color: 'var(--text-primary)', outline: 'none', resize: 'vertical', fontSize: 13, fontFamily: 'var(--font-mono)' }}
-                    />
-                  </div>
-                  <div style={{ display: 'flex', gap: 12, marginTop: 10 }}>
-                    <button type="submit" className="btn btn-primary" style={{ background: 'var(--accent-teal)' }}>保存并进入下一步</button>
-                    <button type="button" className="btn btn-ghost" onClick={() => {
-                      setIsCreatingJob(false)
-                      setIsEditingJob(false)
-                      if (jobs.length > 0) handleSelectJob(jobs[0])
-                    }}>取消</button>
-                  </div>
-                </form>
-              ) : selectedJob ? (
-                /* Details Panel */
-                <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-                  {/* Job Header */}
-                  <div style={{ padding: '24px 28px', borderBottom: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <h2 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>{selectedJob.title}</h2>
-                        <span className={`badge ${
-                          selectedJob.status === 'approved' ? 'badge-green' :
-                          selectedJob.status === 'pending_review' ? 'badge-amber' :
-                          selectedJob.status === 'rejected' ? 'badge-rose' :
-                          'badge-gray'
-                        }`}>
-                          {selectedJob.status === 'approved' && '学校已审核通过 · 招聘中'}
-                          {selectedJob.status === 'pending_review' && '教务审核中'}
-                          {selectedJob.status === 'rejected' && '已驳回'}
-                          {selectedJob.status === 'draft' && '草稿阶段 (尚未提交审核)'}
+          {/* ===== Tab: Candidates ===== */}
+          {activeTab === 'candidates_for_job' && (
+            <div className="surface-card">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-md)' }}>
+                <button className="btn btn-ghost btn-sm" onClick={() => setActiveTab('jobs')}>← 返回岗位</button>
+                <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>
+                  岗位「{candidatesJobTitle}」的授权候选人
+                </span>
+              </div>
+              {candidatesLoading ? (
+                <div className="empty-state">加载中...</div>
+              ) : candidates.length === 0 ? (
+                <div className="empty-state" style={{ padding: 'var(--space-xxl)' }}>
+                  <span style={{ fontSize: 40 }}>👥</span>
+                  <span style={{ fontSize: 14 }}>暂无学生授权其 AI 画像到您的在招岗位。</span>
+                  <span style={{ fontSize: 12, color: 'var(--text-tertiary)', maxWidth: 460 }}>
+                    学生在学生端完成 AI 画像诊断后，如果选择了您的岗位作为诊断目标，可以主动选择"授权"将画像公开给您查看。
+                  </span>
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>候选人姓名</th>
+                        <th>年级专业</th>
+                        <th>申请岗位</th>
+                        <th style={{ textAlign: 'center' }}>岗位匹配度</th>
+                        <th>授权时间</th>
+                        <th style={{ textAlign: 'right' }}>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {candidates.map((cand) => {
+                        const pct = Math.round(cand.match_score * 100)
+                        return (
+                          <tr key={cand.auth_id}>
+                            <td style={{ fontWeight: 600 }}>{cand.student_name}</td>
+                            <td>{cand.student_grade} · {cand.student_major}</td>
+                            <td>{cand.job_title}</td>
+                            <td style={{ textAlign: 'center' }}>
+                              <span className={`badge ${
+                                pct >= 80 ? 'badge-success' :
+                                pct >= 60 ? 'badge-warning' :
+                                'badge-danger'
+                              }`} style={{ fontWeight: 700, fontSize: 14 }}>
+                                {pct}%
+                              </span>
+                            </td>
+                            <td style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                              {cand.auth_date ? new Date(cand.auth_date).toLocaleDateString() : '-'}
+                            </td>
+                            <td style={{ textAlign: 'right' }}>
+                              <button
+                                className="btn btn-ghost btn-sm"
+                                onClick={() => handleViewCandidate(cand)}
+                                disabled={candDetailLoading}
+                              >
+                                查看对比报告
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ===== Candidate Comparison Modal ===== */}
+        {showCandModal && selectedCandidate && (() => {
+          const student = selectedCandidate.student
+          const ps = student?.profile_sections || {}
+          const edu = ps.education || {}
+          const psSkills = ps.skills || []
+          const psProjects = ps.project_exp || []
+          const psInternships = ps.internship_exp || []
+          const psAwards = ps.awards || []
+          const psPubs = ps.publications || []
+          const psSelfEval = ps.self_evaluation || ''
+          const attachments = selectedCandidate.attachments || []
+
+          return (
+            <div className="modal-overlay">
+              <div className="modal-panel">
+                {/* Modal Header */}
+                <div className="modal-header">
+                  <div>
+                    <h3 className="section-title" style={{ margin: 0 }}>
+                      候选人匹配对比报告：{selectedCandidate.student.name}
+                    </h3>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 'var(--space-xs)' }}>
+                      针对岗位：<strong>{selectedCandidate.job.title}</strong> | 匹配评分：
+                      <span className="tag tag-blue">
+                        {Math.round(selectedCandidate.diagnosis.match_score * 100)}%
+                      </span>
+                      {selectedCandidate.authorization_time && (
+                        <span style={{ marginLeft: 'var(--space-sm)' }}>
+                          授权时间：{new Date(selectedCandidate.authorization_time).toLocaleDateString()}
                         </span>
-                      </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>岗位品类：{selectedJob.category}</div>
+                      )}
                     </div>
-                    {(selectedJob.status === 'draft' || selectedJob.status === 'rejected') && (
-                      <button className="btn btn-ghost" onClick={handleStartEditJob} style={{ padding: '6px 12px', fontSize: 12 }}>
-                        编辑岗位
-                      </button>
-                    )}
                   </div>
+                  <button
+                    className="ed-close-btn"
+                    onClick={() => setShowCandModal(false)}
+                  >
+                    &times;
+                  </button>
+                </div>
 
-                  {/* Detail contents */}
-                  <div style={{ flex: 1, overflowY: 'auto', padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 24 }}>
-                    {selectedJob.status === 'rejected' && selectedJob.review_reason && (
-                      <div style={{
-                        background: 'rgba(196, 122, 139, 0.08)',
-                        border: '1px solid rgba(196, 122, 139, 0.2)',
-                        padding: '12px 16px',
-                        borderRadius: 8,
-                        color: 'var(--accent-rose)',
-                        fontSize: 13
-                      }}>
-                        <strong>⚠️ 驳回原因：</strong>{selectedJob.review_reason}
-                      </div>
-                    )}
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 28 }}>
-                      {/* Left Part: Description & JD */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                        <div>
-                          <h4 style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>岗位简介</h4>
-                          <p style={{ fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{selectedJob.description || '暂无简介'}</p>
-                        </div>
-                        <div>
-                          <h4 style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>招聘描述与技能要求 (JD)</h4>
-                          <pre style={{
-                            padding: 14,
-                            borderRadius: 8,
-                            background: 'var(--bg-hover)',
-                            border: '1px solid var(--border-light)',
-                            fontSize: 12,
-                            lineHeight: 1.5,
-                            whiteSpace: 'pre-wrap',
-                            fontFamily: 'var(--font-mono)',
-                            color: 'var(--text-primary)'
-                          }}>{selectedJob.requirements_text}</pre>
+                {/* Modal Scroll Content */}
+                <div className="modal-body">
+                  {/* Top Details grid */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 'var(--space-xl)' }}>
+                    {/* Profile detail */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
+                      <div className="ed-bg-section">
+                        <div className="section-label">教育背景</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)', fontSize: 13 }}>
+                          <div>学校: <strong>{edu.school || student.school || selectedCandidate.student.grade}</strong></div>
+                          <div>学历: <strong>{edu.education_level || '-'}</strong></div>
+                          <div>专业: <strong>{selectedCandidate.student.major}</strong></div>
+                          <div>成绩排名: <strong>{edu.rank_description || '未提及'}</strong></div>
+                          <div>英语水平: <strong>{edu.english_level || '未提及'}</strong></div>
+                          <div>意向岗位: <strong>{selectedCandidate.student.target_job}</strong></div>
                         </div>
                       </div>
 
-                      {/* Right Part: Ability Model */}
-                      <div>
-                        <h4 style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 12 }}>AI 解析能力指标模型</h4>
-                        {detailLoading ? (
-                          <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--text-tertiary)' }}>获取指标模型中...</div>
-                        ) : !selectedJobModel ? (
-                          <div style={{
-                            padding: 20,
-                            borderRadius: 10,
-                            border: '1px dashed var(--border-light)',
-                            textAlign: 'center',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            gap: 10
-                          }}>
-                            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>您尚未提取该岗位的能力指标特征</span>
-                            <button
-                              onClick={() => handleParseAbilityModel(selectedJob.id)}
-                              disabled={parsingJobId === selectedJob.id}
-                              className="btn btn-primary"
-                              style={{ padding: '6px 14px', fontSize: 12, background: 'var(--accent-teal)' }}
-                            >
-                              {parsingJobId === selectedJob.id ? '大模型提取中...' : '💡 智能体提取能力指标'}
-                            </button>
+                      {/* 实习经历 */}
+                      {psInternships.length > 0 && (
+                        <div>
+                          <div className="section-label">实习经历</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
+                            {psInternships.map((item: any, idx: number) => (
+                              <div key={idx} className="ed-project-card">
+                                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{item.company_name} · {item.position_name}</div>
+                                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{item.start_date} ~ {item.end_date}</div>
+                                <div style={{ color: 'var(--text-secondary)', marginTop: 'var(--space-xs)', fontSize: 12 }}>{item.description}</div>
+                              </div>
+                            ))}
                           </div>
+                        </div>
+                      )}
+
+                      {/* 项目经验 */}
+                      <div>
+                        <div className="section-label">项目经验</div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
+                          {(psProjects.length > 0 ? psProjects : (selectedCandidate.student.project_exp || [])).length === 0 ? (
+                            <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>暂无项目经验</span>
+                          ) : (
+                            (psProjects.length > 0 ? psProjects : selectedCandidate.student.project_exp).map((p: any, idx: number) => (
+                              <div key={idx} className="ed-project-card">
+                                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{p.project_name || p.name}</div>
+                                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{p.project_role || p.role || ''}</div>
+                                <div style={{ color: 'var(--text-secondary)', marginTop: 'var(--space-xs)', fontSize: 12 }}>{p.description}</div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* AI Rationale & Skills */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
+                      <div className="ed-ai-card">
+                        <div className="section-label" style={{ color: 'var(--accent-primary)' }}>AI 岗位画像匹配依据</div>
+                        <p style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>
+                          {selectedCandidate.diagnosis.ai_reasoning?.reasoning ||
+                           selectedCandidate.diagnosis.ai_reasoning?.match_analysis ||
+                           selectedCandidate.diagnosis.career_advice ||
+                           'AI 推荐语加载中...'}
+                        </p>
+                      </div>
+
+                      {/* 技能列表 */}
+                      {psSkills.length > 0 && (
+                        <div className="ed-bg-section">
+                          <div className="section-label">技能</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-xs)' }}>
+                            {psSkills.map((s: any, i: number) => (
+                              <span key={i} className="tag tag-blue" style={{ fontSize: 11 }}>
+                                {s.name} · {s.level}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 奖励荣誉 */}
+                      {psAwards.length > 0 && (
+                        <div className="ed-bg-section">
+                          <div className="section-label">奖励荣誉</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-xs)', fontSize: 12 }}>
+                            {psAwards.map((a: any, i: number) => (
+                              <div key={i} style={{ color: 'var(--text-secondary)' }}>
+                                <strong>{a.award_name}</strong>
+                                {a.level && <span className="tag tag-gray" style={{ marginLeft: 4, fontSize: 10 }}>{a.level}</span>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 论文/专利 */}
+                      {psPubs.length > 0 && (
+                        <div className="ed-bg-section">
+                          <div className="section-label">论文 / 专利</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-xs)', fontSize: 12 }}>
+                            {psPubs.map((p: any, i: number) => (
+                              <div key={i} style={{ color: 'var(--text-secondary)' }}>
+                                <span className="tag tag-gray" style={{ fontSize: 10, marginRight: 4 }}>{p.pub_type}</span>
+                                {p.name}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 自我评价 */}
+                      {psSelfEval && (
+                        <div className="ed-bg-section" style={{ opacity: 0.7 }}>
+                          <div className="section-label">自我评价 (仅供参考)</div>
+                          <p style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>{psSelfEval.slice(0, 200)}</p>
+                        </div>
+                      )}
+
+                      <div className="ed-bg-section">
+                        <div className="section-label">证明材料</div>
+                        {attachments.length === 0 ? (
+                          <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>学生暂未上传成绩单或其他证明材料</span>
                         ) : (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                            {/* Skills progress lines */}
-                            <div>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>技术技能要求</div>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                {Object.entries(selectedJobModel.tech_skills).map(([skill, val]) => (
-                                  <div key={skill} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
-                                      <span>{skill}</span>
-                                      <span style={{ fontWeight: 600 }}>{val}分</span>
-                                    </div>
-                                    <div style={{ height: 4, width: '100%', background: 'var(--bg-hover)', borderRadius: 2 }}>
-                                      <div style={{ height: '100%', width: `${val}%`, background: 'var(--accent-teal)', borderRadius: 2 }} />
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-
-                            <div>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>领域知识要求</div>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                {Object.entries(selectedJobModel.domain_knowledge).map(([dom, val]) => (
-                                  <div key={dom} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
-                                      <span>{dom}</span>
-                                      <span style={{ fontWeight: 600 }}>{val}分</span>
-                                    </div>
-                                    <div style={{ height: 4, width: '100%', background: 'var(--bg-hover)', borderRadius: 2 }}>
-                                      <div style={{ height: '100%', width: `${val}%`, background: 'var(--accent-blue)', borderRadius: 2 }} />
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 12, background: 'var(--bg-hover)', padding: 12, borderRadius: 8, fontSize: 11 }}>
-                              <div>
-                                <strong style={{ color: 'var(--text-secondary)' }}>核心软技能：</strong>
-                                <div style={{ marginTop: 4 }}>
-                                  {Object.keys(selectedJobModel.soft_skills).join(' / ') || '未提取'}
-                                </div>
-                              </div>
-                              <div>
-                                <strong style={{ color: 'var(--text-secondary)' }}>核心项目经历要求：</strong>
-                                <div style={{ marginTop: 4, maxHeight: '60px', overflowY: 'auto' }}>
-                                  {selectedJobModel.project_exp.map((p, idx) => (
-                                    <div key={idx} style={{ color: 'var(--text-primary)', marginBottom: 2 }}>
-                                      • {p.name}
-                                    </div>
-                                  )) || '无'}
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Weight Configuration */}
-                            <div style={{ background: 'var(--bg-hover)', padding: 10, borderRadius: 8, display: 'flex', justifyContent: 'space-around', fontSize: 11 }}>
-                              <div>💻 技术权重: <strong>{Math.round((selectedJobModel.weight_config?.tech_skills || 0) * 100)}%</strong></div>
-                              <div>📈 知识权重: <strong>{Math.round((selectedJobModel.weight_config?.domain_knowledge || 0) * 100)}%</strong></div>
-                              <div>🤝 软技能权重: <strong>{Math.round((selectedJobModel.weight_config?.soft_skills || 0) * 100)}%</strong></div>
-                            </div>
-
-                            {/* Re-parse buttons */}
-                            <button
-                              onClick={() => handleParseAbilityModel(selectedJob.id)}
-                              disabled={parsingJobId === selectedJob.id}
-                              className="btn btn-ghost"
-                              style={{ width: '100%', padding: '6px 12px', fontSize: 12, borderStyle: 'dashed' }}
-                            >
-                              {parsingJobId === selectedJob.id ? '大模型重新提取中...' : '重新进行 AI 解析建模'}
-                            </button>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-xs)' }}>
+                            {attachments.map((att: any) => (
+                              <a
+                                key={att.id}
+                                href={getAttachmentDownloadUrl(student.id, att.id, enterpriseId)}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="tag tag-gray"
+                                style={{ textDecoration: 'none', width: 'fit-content', fontSize: 11 }}
+                              >
+                                {att.category === 'transcript' ? '成绩单' : att.category === 'language_certificate' ? '外语成绩证明' : '证明材料'}：{att.file_name}
+                              </a>
+                            ))}
                           </div>
                         )}
                       </div>
                     </div>
                   </div>
 
-                  {/* Actions Footer */}
-                  {selectedJobModel && (selectedJob.status === 'draft' || selectedJob.status === 'rejected') && (
-                    <div style={{ padding: '16px 28px', borderTop: '1px solid var(--border-light)', background: 'var(--bg-hover)', display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-                      <span style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}>
-                        对指标模型满意后，即可提交学校审核：
-                      </span>
-                      <button
-                        onClick={() => handleSubmitReview(selectedJob.id)}
-                        disabled={submittingJobId === selectedJob.id}
-                        className="btn btn-primary"
-                        style={{ padding: '8px 20px', background: 'var(--accent-teal)' }}
-                      >
-                        {submittingJobId === selectedJob.id ? '提交中...' : '🚀 提交学校教务审核'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-tertiary)', flexDirection: 'column', gap: 12 }}>
-                  <span style={{ fontSize: 40 }}>📄</span>
-                  <span>请在左侧选择一个在招岗位或创建新岗位。</span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Tab content 3: Candidates list */}
-        {activeTab === 'candidates' && (
-          <div className="glass-panel" style={{
-            padding: 24,
-            borderRadius: 16,
-            background: 'var(--bg-card)',
-            border: '1px solid var(--border-light)',
-            boxShadow: 'var(--shadow-sm)',
-          }}>
-            {candidatesLoading ? (
-              <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-tertiary)' }}>加载中...</div>
-            ) : candidates.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 60, color: 'var(--text-tertiary)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-                <span style={{ fontSize: 40 }}>👥</span>
-                <span style={{ fontSize: 14 }}>暂无学生授权其 AI 画像到您的在招岗位。</span>
-                <span style={{ fontSize: 12, color: 'var(--text-tertiary)', maxWidth: 460 }}>
-                  学生在学生端完成 AI 画像诊断后，如果选择了您的岗位作为诊断目标，可以主动选择“授权”将画像公开给您查看。
-                </span>
-              </div>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table className="data-table">
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--border-light)', color: 'var(--text-secondary)' }}>
-                      <th style={{ padding: '12px 16px' }}>候选人姓名</th>
-                      <th style={{ padding: '12px 16px' }}>年级专业</th>
-                      <th style={{ padding: '12px 16px' }}>申请岗位</th>
-                      <th style={{ padding: '12px 16px', textAlign: 'center' }}>岗位匹配度</th>
-                      <th style={{ padding: '12px 16px' }}>授权时间</th>
-                      <th style={{ padding: '12px 16px', textAlign: 'right' }}>操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {candidates.map((cand) => {
-                      const pct = Math.round(cand.match_score * 100)
-                      return (
-                        <tr key={cand.auth_id} style={{ borderBottom: '1px solid var(--border-light)' }}>
-                          <td style={{ padding: '16px 16px', fontWeight: 600 }}>{cand.student_name}</td>
-                          <td style={{ padding: '16px 16px' }}>{cand.student_grade} · {cand.student_major}</td>
-                          <td style={{ padding: '16px 16px' }}>{cand.job_title}</td>
-                          <td style={{ padding: '16px 16px', textAlign: 'center' }}>
-                            <span style={{
-                              fontWeight: 700,
-                              fontSize: 14,
-                              color: pct >= 80 ? 'var(--accent-green)' : pct >= 60 ? 'var(--accent-amber)' : 'var(--accent-rose)'
-                            }}>{pct}%</span>
-                          </td>
-                          <td style={{ padding: '16px 16px', color: 'var(--text-secondary)', fontSize: 12 }}>
-                            {cand.auth_date ? new Date(cand.auth_date).toLocaleDateString() : '-'}
-                          </td>
-                          <td style={{ padding: '16px 16px', textAlign: 'right' }}>
-                            <button
-                              className="btn btn-ghost"
-                              onClick={() => handleViewCandidate(cand)}
-                              disabled={candDetailLoading}
-                              style={{ padding: '4px 12px', fontSize: 12, border: '1px solid var(--accent-teal)', color: 'var(--accent-teal)' }}
-                            >
-                              查看对比报告
-                            </button>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-      </main>
-
-      {/* Candidate comparison drawer/modal */}
-      {showCandModal && selectedCandidate && (
-        <div className="modal-overlay">
-          <div className="modal-panel">
-            {/* Modal Header */}
-            <div style={{
-              padding: '20px 30px',
-              borderBottom: '1px solid var(--border-light)',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center'
-            }}>
-              <div>
-                <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>
-                  候选人匹配对比报告：{selectedCandidate.student.name}
-                </h3>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
-                  针对岗位：<strong>{selectedCandidate.job.title}</strong> | 匹配评分：
-                  <strong style={{ color: 'var(--accent-teal)', fontSize: 14 }}>
-                    {Math.round(selectedCandidate.diagnosis.match_score * 100)}%
-                  </strong>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowCandModal(false)}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  fontSize: 24,
-                  cursor: 'pointer',
-                  color: 'var(--text-secondary)'
-                }}
-              >
-                &times;
-              </button>
-            </div>
-
-            {/* Modal Scroll Content */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: 30, display: 'flex', flexDirection: 'column', gap: 24 }}>
-              {/* Top Details grid */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 24 }}>
-                {/* Profile detail */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                  <div style={{ background: 'var(--bg-hover)', padding: 18, borderRadius: 12 }}>
-                    <h4 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10 }}>教育与岗位背景</h4>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 13 }}>
-                      <div>年级门类: <strong>{selectedCandidate.student.grade}</strong></div>
-                      <div>专业方向: <strong>{selectedCandidate.student.major}</strong></div>
-                      <div>意向求职: <strong>{selectedCandidate.student.target_job}</strong></div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h4 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>项目经历对比</h4>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {selectedCandidate.student.project_exp.length === 0 ? (
-                        <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>简历中无提取项目经验</span>
-                      ) : (
-                        selectedCandidate.student.project_exp.map((p: any, idx: number) => (
-                          <div key={idx} style={{ border: '1px solid var(--border-light)', padding: 10, borderRadius: 8, fontSize: 12 }}>
-                            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{p.name}</div>
-                            <div style={{ color: 'var(--text-secondary)', marginTop: 4 }}>{p.description}</div>
+                  {/* 能力对比可视化 */}
+                  <React.Suspense fallback={<div style={{ textAlign: 'center', padding: 30, color: 'var(--text-tertiary)', fontSize: 13 }}>加载图表中...</div>}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-lg)', marginTop: 'var(--space-lg)' }}>
+                      <div className="surface-card" style={{ padding: 'var(--space-md)' }}>
+                        <div className="section-label" style={{ marginBottom: 'var(--space-sm)' }}>能力雷达对比</div>
+                        <div style={{ height: 260 }}>
+                          <ReactECharts option={getDoubleRadarOption()} style={{ height: '100%', width: '100%' }} />
+                        </div>
+                      </div>
+                      {(() => {
+                        const gapOption = getGapBarOption()
+                        return Object.keys(gapOption).length > 0 ? (
+                          <div className="surface-card" style={{ padding: 'var(--space-md)' }}>
+                            <div className="section-label" style={{ marginBottom: 'var(--space-sm)' }}>能力差距分析</div>
+                            <div style={{ height: 260 }}>
+                              <ReactECharts option={gapOption} style={{ height: '100%', width: '100%' }} />
+                            </div>
                           </div>
-                        ))
-                      )}
+                        ) : (
+                          <div className="surface-card" style={{ padding: 'var(--space-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-tertiary)', fontSize: 12 }}>
+                            暂无差距分析数据
+                          </div>
+                        )
+                      })()}
                     </div>
-                  </div>
-                </div>
-
-                {/* AI Rationale & Advice */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                  <div style={{ border: '1px solid var(--accent-teal)', background: 'rgba(90, 158, 143, 0.05)', padding: 18, borderRadius: 12 }}>
-                    <h4 style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent-teal)', marginBottom: 8 }}>💡 AI 岗位画像匹配依据</h4>
-                    <p style={{ fontSize: 12, lineHeight: 1.6, color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>
-                      {selectedCandidate.diagnosis.ai_reasoning?.reasoning ||
-                       selectedCandidate.diagnosis.ai_reasoning?.match_analysis ||
-                       selectedCandidate.diagnosis.career_advice ||
-                       'AI 推荐语加载中...'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Middle Charts: Radar Chart & Gap chart */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, borderTop: '1px solid var(--border-light)', paddingTop: 24 }}>
-                <div style={{ height: '320px', display: 'flex', flexDirection: 'column' }}>
-                  <h4 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10, textAlign: 'center' }}>
-                    技能匹配雷达对比图
-                  </h4>
-                  <div style={{ flex: 1 }}>
-                    <ReactECharts option={getDoubleRadarOption()} style={{ height: '100%', width: '100%' }} />
-                  </div>
-                </div>
-
-                <div style={{ height: '320px', display: 'flex', flexDirection: 'column' }}>
-                  <h4 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10, textAlign: 'center' }}>
-                    核心指标能力差距分析
-                  </h4>
-                  <div style={{ flex: 1 }}>
-                    <ReactECharts option={getGapBarOption()} style={{ height: '100%', width: '100%' }} />
-                  </div>
+                  </React.Suspense>
                 </div>
               </div>
             </div>
+          )
+        })()}
 
-            {/* Modal Footer */}
-            <div style={{
-              padding: '16px 30px',
-              borderTop: '1px solid var(--border-light)',
-              background: 'var(--bg-hover)',
-              display: 'flex',
-              justifyContent: 'flex-end'
-            }}>
-              <button className="btn btn-primary" onClick={() => setShowCandModal(false)} style={{ background: 'var(--accent-teal)' }}>
-                关闭报告
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+      </div>
+    </>
   )
 }

@@ -7,15 +7,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from db.database import get_db
 from db.models import DiagnosisResult as DiagORM
+from core.auth import get_current_identity, verify_student_access, Identity
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
 
 # 导出能力画像为 JSON
 @router.get("/profile/{student_id}")
-async def export_profile_json(student_id: str, diagnosis_id: str = Query(None), db: AsyncSession = Depends(get_db)):
+async def export_profile_json(
+    student_id: int,
+    diagnosis_id: str = Query(None),
+    db: AsyncSession = Depends(get_db),
+    identity: Identity = Depends(get_current_identity),
+):
+    verify_student_access(student_id, identity)
     if diagnosis_id:
-        result = await db.execute(select(DiagORM).where(DiagORM.id == diagnosis_id))
+        result = await db.execute(select(DiagORM).where(DiagORM.id == diagnosis_id, DiagORM.student_id == student_id))
     else:
         result = await db.execute(
             select(DiagORM).where(DiagORM.student_id == student_id).order_by(DiagORM.created_at.desc()).limit(1))
@@ -41,10 +48,16 @@ async def export_profile_json(student_id: str, diagnosis_id: str = Query(None), 
 
 # 导出为 Excel(含能力画像和 TOP5 岗位两个工作表)
 @router.get("/profile/{student_id}/excel")
-async def export_profile_excel(student_id: str, diagnosis_id: str = Query(None), db: AsyncSession = Depends(get_db)):
+async def export_profile_excel(
+    student_id: int,
+    diagnosis_id: str = Query(None),
+    db: AsyncSession = Depends(get_db),
+    identity: Identity = Depends(get_current_identity),
+):
+    verify_student_access(student_id, identity)
     from openpyxl import Workbook
     if diagnosis_id:
-        result = await db.execute(select(DiagORM).where(DiagORM.id == diagnosis_id))
+        result = await db.execute(select(DiagORM).where(DiagORM.id == diagnosis_id, DiagORM.student_id == student_id))
     else:
         result = await db.execute(
             select(DiagORM).where(DiagORM.student_id == student_id).order_by(DiagORM.created_at.desc()).limit(1))
@@ -79,9 +92,15 @@ async def export_profile_excel(student_id: str, diagnosis_id: str = Query(None),
 
 # 导出成长路径规划为 PDF
 @router.get("/path/{student_id}")
-async def export_path_pdf(student_id: str, diagnosis_id: str = Query(None), db: AsyncSession = Depends(get_db)):
+async def export_path_pdf(
+    student_id: int,
+    diagnosis_id: str = Query(None),
+    db: AsyncSession = Depends(get_db),
+    identity: Identity = Depends(get_current_identity),
+):
+    verify_student_access(student_id, identity)
     if diagnosis_id:
-        result = await db.execute(select(DiagORM).where(DiagORM.id == diagnosis_id))
+        result = await db.execute(select(DiagORM).where(DiagORM.id == diagnosis_id, DiagORM.student_id == student_id))
     else:
         result = await db.execute(
             select(DiagORM).where(DiagORM.student_id == student_id).order_by(DiagORM.created_at.desc()).limit(1))

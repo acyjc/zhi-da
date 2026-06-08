@@ -24,16 +24,16 @@ const PathTimeline: FC<Props> = ({ phases, currentPhase = -1 }) => {
           justifyContent: 'center',
           flexShrink: 0,
           border: isCompleted
-            ? '2px solid var(--accent-green)'
+            ? '2px solid var(--accent-success)'
             : isCurrent
-              ? '2px solid var(--accent-blue)'
+              ? '2px solid var(--accent-primary)'
               : '2px solid var(--text-tertiary)',
           background: isCompleted
-            ? 'var(--accent-green)'
+            ? 'var(--accent-success)'
             : isCurrent
-              ? 'rgba(91,123,181,0.2)'
+              ? 'rgba(0,113,227,0.2)'
               : 'transparent',
-          color: isCompleted ? '#fafaf8' : isCurrent ? 'var(--accent-blue)' : 'var(--text-tertiary)',
+          color: isCompleted ? '#fafaf8' : isCurrent ? 'var(--accent-primary)' : 'var(--text-tertiary)',
           fontWeight: 700,
           fontSize: 11,
           fontFamily: 'var(--font-mono)',
@@ -55,7 +55,7 @@ const PathTimeline: FC<Props> = ({ phases, currentPhase = -1 }) => {
                   top: 11,
                   height: 2,
                   background: isCompleted || (isCurrent && i <= currentPhase)
-                    ? 'linear-gradient(to right, var(--accent-green), var(--accent-blue))'
+                    ? 'linear-gradient(to right, var(--accent-success), var(--accent-primary))'
                     : 'var(--border-light)',
                   zIndex: 0,
                 }} />
@@ -68,16 +68,16 @@ const PathTimeline: FC<Props> = ({ phases, currentPhase = -1 }) => {
                   top: 11,
                   height: 2,
                   background: isCompleted
-                    ? 'var(--accent-green)'
+                    ? 'var(--accent-success)'
                     : isCurrent
-                      ? 'linear-gradient(to right, var(--accent-blue), var(--border-light))'
+                      ? 'linear-gradient(to right, var(--accent-primary), var(--border-light))'
                       : 'var(--border-light)',
                   zIndex: 0,
                 }} />
               )}
               <div style={{ ...nodeStyle, position: 'relative', zIndex: 1 }}>
                 {isCompleted ? '✓' : isCurrent ? '' : i + 1}
-                {isCurrent && <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent-blue)' }} />}
+                {isCurrent && <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--accent-primary)' }} />}
               </div>
             </div>
             <span style={{

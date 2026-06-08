@@ -39,7 +39,7 @@ const ReEvaluatePrompt: FC<Props> = ({ visible, message, onReEvaluate, onDismiss
         transition: 'background-color 0.3s, border-color 0.3s',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent-amber)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent-warning)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
             <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
           </svg>
@@ -52,7 +52,7 @@ const ReEvaluatePrompt: FC<Props> = ({ visible, message, onReEvaluate, onDismiss
               padding: '7px 20px',
               borderRadius: 6,
               border: 'none',
-              background: 'var(--accent-blue)',
+              background: 'var(--accent-primary)',
               color: '#fff',
               cursor: 'pointer',
               fontSize: 12, fontWeight: 600,
@@ -60,7 +60,7 @@ const ReEvaluatePrompt: FC<Props> = ({ visible, message, onReEvaluate, onDismiss
               letterSpacing: '0.5px',
               transition: 'all 0.2s ease',
             }}
-            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 16px rgba(91,156,245,0.4)'; e.currentTarget.style.transform = 'scale(1.03)' }}
+            onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 0 16px rgba(0,113,227,0.4)'; e.currentTarget.style.transform = 'scale(1.03)' }}
             onMouseLeave={e => { e.currentTarget.style.boxShadow = ''; e.currentTarget.style.transform = '' }}
           >
             立即重新诊断

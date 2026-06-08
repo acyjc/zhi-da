@@ -25,7 +25,7 @@ const AdviceTab: FC<Props> = ({ careerAdvice, aiReasoning, recommendedDirections
           bottom: 12,
           width: 3,
           borderRadius: 2,
-          background: 'var(--accent-teal)',
+          background: 'var(--accent-primary)',
         }} />
         <div style={{
           fontSize: 14,
@@ -56,7 +56,7 @@ const AdviceTab: FC<Props> = ({ careerAdvice, aiReasoning, recommendedDirections
                   borderRadius: 20,
                   border: '1px solid var(--border-light)',
                   background: 'var(--bg-card)',
-                  color: 'var(--accent-teal)',
+                  color: 'var(--accent-primary)',
                   fontSize: 12,
                   fontWeight: 500,
                   fontFamily: 'var(--font-display)',

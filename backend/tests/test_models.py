@@ -45,24 +45,24 @@ class TestStudentModels:
 
 class TestDiagnosisModels:
     def test_diagnose_request(self):
-        req = DiagnoseRequest(student_id="abc123", mode="full")
-        assert req.student_id == "abc123"
+        req = DiagnoseRequest(student_id=8001, mode="full")
+        assert req.student_id == 8001
         assert req.mode == "full"
 
     def test_re_evaluate_request(self):
-        req = ReEvaluateRequest(student_id="abc123", trigger_event="技能更新")
+        req = ReEvaluateRequest(student_id=8001, trigger_event="技能更新")
         assert req.trigger_event == "技能更新"
 
 
 class TestProgressModels:
     def test_task_complete_request(self):
-        req = TaskCompleteRequest(student_id="s1", task_id="t1", evidence="已完成学习")
-        assert req.student_id == "s1"
+        req = TaskCompleteRequest(student_id=8002, task_id="t1", evidence="已完成学习")
+        assert req.student_id == 8002
         assert req.evidence == "已完成学习"
 
     def test_task_progress_response(self):
         resp = TaskProgressResponse(
-            id="p1", student_id="s1", diagnosis_id="d1",
+            id="p1", student_id=8002, diagnosis_id="d1",
             phase_index=0, task_index=0, task_name="学Python",
             status="completed", completed_at="2024-01-01T00:00:00",
             evidence="done", skill_impact={"Python": {"delta": 10}},

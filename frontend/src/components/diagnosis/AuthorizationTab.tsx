@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
+import { toast } from '../../utils/toast'
 import {
   getStudentJobs,
   getStudentAuthorizations,
@@ -16,15 +17,14 @@ export default function AuthorizationTab({ student, diagnosisResult }: Authoriza
   const [auths, setAuths] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [actionId, setActionId] = useState<string | null>(null)
+  const [showOtherJobs, setShowOtherJobs] = useState(false)
 
   const loadData = async () => {
     setLoading(true)
     try {
-      // Fetch available approved jobs
       const jobsData = await getStudentJobs()
       setJobs(jobsData)
 
-      // Fetch student authorizations
       if (student?.id) {
         const authsData = await getStudentAuthorizations(student.id)
         setAuths(authsData)
@@ -40,13 +40,49 @@ export default function AuthorizationTab({ student, diagnosisResult }: Authoriza
     loadData()
   }, [student?.id])
 
+  // 按诊断结果对岗位进行三级优先级分组
+  const { targetJob, recommendedJobs, otherJobs } = useMemo(() => {
+    if (!jobs.length || !diagnosisResult) {
+      return { targetJob: null, recommendedJobs: [], otherJobs: jobs }
+    }
+
+    const top5Ids = new Set(
+      (diagnosisResult.top5_jobs || []).map((j: any) => j.id || j.job_id)
+    )
+    const top5Titles = new Set(
+      (diagnosisResult.top5_jobs || []).map((j: any) => j.title)
+    )
+    const targetTitle = diagnosisResult.top5_jobs?.[0]?.title || student?.target_job || ''
+
+    let foundTarget: any = null
+    const recommended: any[] = []
+    const others: any[] = []
+
+    for (const job of jobs) {
+      // 第一优先：当前诊断目标岗位（top5_jobs[0] 或匹配 target_job）
+      if (!foundTarget && (job.title === targetTitle || job.id === (diagnosisResult.top5_jobs?.[0]?.id || diagnosisResult.top5_jobs?.[0]?.job_id))) {
+        foundTarget = job
+        continue
+      }
+      // 第二优先：诊断推荐岗位（top5_jobs 中其余）
+      if (top5Ids.has(job.id) || top5Ids.has(job.job_id) || top5Titles.has(job.title)) {
+        recommended.push(job)
+        continue
+      }
+      // 第三优先：其他可授权岗位
+      others.push(job)
+    }
+
+    return { targetJob: foundTarget, recommendedJobs: recommended, otherJobs: others }
+  }, [jobs, diagnosisResult, student])
+
   const handleAuthorize = async (job: any) => {
     if (!student?.id || !diagnosisResult?.id) return
-    // 授权前二次确认，明确告知共享范围
     const confirmed = window.confirm(
-      `确认将 V${diagnosisResult.version} 版本的能力画像数据授权给「${job.enterprise_name}」的「${job.title}」岗位？\n\n` +
-      `共享内容包括：四维能力评分、技能标签、匹配度分析。\n` +
-      `注意：后续再诊断不会自动更新此授权数据，需手动重新授权。`
+      `确认将 V${diagnosisResult.version} 版本诊断画像授权给「${job.enterprise_name}」的「${job.title}」岗位？\n\n` +
+      `授权内容包括：五维能力评分、技能标签、匹配度分析、成长建议。\n` +
+      `企业将在该岗位下看到你的 V${diagnosisResult.version} 版本画像数据。\n` +
+      `注意：后续再诊断不会自动更新此授权，需手动重新授权。`
     )
     if (!confirmed) return
     setActionId(job.id)
@@ -56,16 +92,9 @@ export default function AuthorizationTab({ student, diagnosisResult }: Authoriza
         job_post_id: job.id,
         diagnosis_id: diagnosisResult.id
       })
-      
-      // Dispatch event to SalaryCat mascot
-      const ev = new CustomEvent('salarycat-message', {
-        detail: `恭喜你！当前版本能力画像已成功授权给「${job.enterprise_name}」的「${job.title}」岗位，企业HR稍后即可在工作台查阅您的匹配详情喵~ 😿`
-      })
-      window.dispatchEvent(ev)
-      
       await loadData()
     } catch (err: any) {
-      alert(`授权失败: ${err.message || err}`)
+      toast.error(`授权失败: ${err.message || err}`)
     } finally {
       setActionId(null)
     }
@@ -75,19 +104,86 @@ export default function AuthorizationTab({ student, diagnosisResult }: Authoriza
     setActionId(auth.id)
     try {
       await deleteStudentAuthorization(auth.id)
-
-      // Dispatch event to SalaryCat mascot
-      const ev = new CustomEvent('salarycat-message', {
-        detail: `已成功撤销对「${auth.enterprise_name} - ${auth.job_title}」岗位的画像数据授权。该企业HR将不再能够查阅您的诊断匹配指标喵。`
-      })
-      window.dispatchEvent(ev)
-
       await loadData()
     } catch (err: any) {
-      alert(`撤销授权失败: ${err.message || err}`)
+      toast.error(`撤销授权失败: ${err.message || err}`)
     } finally {
       setActionId(null)
     }
+  }
+
+  // 单个岗位卡片渲染
+  const renderJobCard = (job: any, tier: 'target' | 'recommended' | 'other') => {
+    const currentAuth = auths.find(a => a.job_title === job.title && a.enterprise_name === job.enterprise_name)
+    const isAuthActive = currentAuth?.status === 'active'
+
+    const borderStyle = tier === 'target'
+      ? '2px solid var(--accent-primary)'
+      : isAuthActive
+        ? '1px solid var(--accent-primary)'
+        : '1px solid var(--border-light)'
+
+    const bgStyle = tier === 'target'
+      ? 'rgba(0,113,227,0.04)'
+      : isAuthActive
+        ? 'rgba(0,113,227,0.02)'
+        : 'transparent'
+
+    return (
+      <div key={job.id} style={{
+        border: borderStyle,
+        borderRadius: 12,
+        padding: 16,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+        background: bgStyle,
+        position: 'relative',
+      }}>
+        {tier === 'target' && (
+          <div style={{
+            position: 'absolute',
+            top: -10,
+            left: 16,
+            fontSize: 10,
+            fontWeight: 700,
+            padding: '2px 10px',
+            borderRadius: 8,
+            background: 'var(--accent-primary)',
+            color: '#fff',
+            letterSpacing: 0.5,
+          }}>
+            当前诊断目标岗位
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>{job.title}</div>
+            <div style={{ fontSize: 12, color: 'var(--accent-primary)', fontWeight: 600, marginTop: 4 }}>
+              {job.enterprise_name} | {job.category}
+            </div>
+          </div>
+
+          {isAuthActive ? (
+            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 8, background: 'rgba(0,113,227,0.15)', color: 'var(--accent-primary)', fontWeight: 600 }}>
+              已授权 V{currentAuth?.diagnosis_version || diagnosisResult?.version}
+            </span>
+          ) : (
+            <button
+              onClick={() => handleAuthorize(job)}
+              disabled={actionId === job.id}
+              className="btn btn-primary"
+              style={{ padding: '6px 12px', fontSize: 12, background: 'var(--accent-primary)' }}
+            >
+              {actionId === job.id ? '授权中...' : '授权画像'}
+            </button>
+          )}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+          {job.description || '暂无描述信息'}
+        </div>
+      </div>
+    )
   }
 
   if (!diagnosisResult) {
@@ -111,7 +207,7 @@ export default function AuthorizationTab({ student, diagnosisResult }: Authoriza
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      {/* Overview stats */}
+      {/* 诊断版本概览 */}
       <div className="glass-panel" style={{
         padding: '20px 24px',
         borderRadius: 12,
@@ -126,25 +222,25 @@ export default function AuthorizationTab({ student, diagnosisResult }: Authoriza
         <div>
           <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>当前诊断版本</span>
           <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginTop: 2 }}>
-            V{diagnosisResult.version} （目标岗位：{diagnosisResult.top5_jobs?.[0]?.title || student.target_job}）
+            V{diagnosisResult.version}（目标：{diagnosisResult.top5_jobs?.[0]?.title || student.target_job}）
           </div>
         </div>
         <div>
           <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>核心匹配得分</span>
-          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent-blue)', marginTop: 2 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent-primary)', marginTop: 2 }}>
             {Math.round(diagnosisResult.match_score * 100)}分
           </div>
         </div>
         <div>
           <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>已授权岗位数</span>
-          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent-teal)', marginTop: 2 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent-primary)', marginTop: 2 }}>
             {auths.filter(a => a.status === 'active').length}个
           </div>
         </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 28 }}>
-        {/* Left: Available approved enterprise jobs */}
+        {/* 左栏：按优先级分组展示岗位 */}
         <div className="glass-panel" style={{
           padding: 24,
           borderRadius: 16,
@@ -155,64 +251,58 @@ export default function AuthorizationTab({ student, diagnosisResult }: Authoriza
           gap: 16
         }}>
           <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>可投递/授权的企业招聘岗位</h3>
-          
+
           {loading ? (
             <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)' }}>获取岗位中...</div>
           ) : jobs.length === 0 ? (
             <div style={{ padding: 30, border: '1px dashed var(--border-light)', borderRadius: 10, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
-              🏢 学校双选网络暂无审核通过的企业在招岗位。
+              学校双选网络暂无审核通过的企业在招岗位。
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '420px', overflowY: 'auto' }}>
-              {jobs.map((job) => {
-                const currentAuth = auths.find(a => a.job_title === job.title && a.enterprise_name === job.enterprise_name)
-                const isAuthActive = currentAuth?.status === 'active'
-                
-                return (
-                  <div key={job.id} style={{
-                    border: '1px solid var(--border-light)',
-                    borderRadius: 10,
-                    padding: 16,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 10,
-                    background: isAuthActive ? 'rgba(90, 158, 143, 0.02)' : 'transparent',
-                    borderColor: isAuthActive ? 'var(--accent-teal)' : 'var(--border-light)',
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: 14 }}>{job.title}</div>
-                        <div style={{ fontSize: 12, color: 'var(--accent-teal)', fontWeight: 600, marginTop: 4 }}>
-                          🏢 {job.enterprise_name} | {job.category}
-                        </div>
-                      </div>
-                      
-                      {isAuthActive ? (
-                        <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 8, background: 'rgba(90, 158, 143, 0.15)', color: 'var(--accent-teal)', fontWeight: 600 }}>
-                          已授权画像
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => handleAuthorize(job)}
-                          disabled={actionId === job.id}
-                          className="btn btn-primary"
-                          style={{ padding: '6px 12px', fontSize: 12, background: 'var(--accent-blue)' }}
-                        >
-                          {actionId === job.id ? '授权中...' : '授权画像'}
-                        </button>
-                      )}
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                      <strong>岗位描述：</strong>{job.description || '暂无描述信息'}
-                    </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '520px', overflowY: 'auto' }}>
+              {/* 第一优先：当前诊断目标岗位 */}
+              {targetJob && renderJobCard(targetJob, 'target')}
+
+              {/* 第二优先：诊断推荐岗位 */}
+              {recommendedJobs.length > 0 && (
+                <>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginTop: targetJob ? 4 : 0 }}>
+                    诊断推荐岗位（{recommendedJobs.length}）
                   </div>
-                )
-              })}
+                  {recommendedJobs.map(job => renderJobCard(job, 'recommended'))}
+                </>
+              )}
+
+              {/* 第三优先：其他可授权岗位（折叠） */}
+              {otherJobs.length > 0 && (
+                <>
+                  <button
+                    onClick={() => setShowOtherJobs(!showOtherJobs)}
+                    style={{
+                      background: 'none',
+                      border: '1px dashed var(--border-light)',
+                      borderRadius: 8,
+                      padding: '8px 12px',
+                      fontSize: 12,
+                      color: 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 4,
+                    }}
+                  >
+                    {showOtherJobs ? '收起' : '展开'}其他可授权岗位（{otherJobs.length}）
+                    <span style={{ transform: showOtherJobs ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}>▾</span>
+                  </button>
+                  {showOtherJobs && otherJobs.map(job => renderJobCard(job, 'other'))}
+                </>
+              )}
             </div>
           )}
         </div>
 
-        {/* Right: Active Authorizations tracking */}
+        {/* 右栏：已授权记录 */}
         <div className="glass-panel" style={{
           padding: 24,
           borderRadius: 16,
@@ -223,15 +313,15 @@ export default function AuthorizationTab({ student, diagnosisResult }: Authoriza
           gap: 16
         }}>
           <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>已授权简历与诊断记录</h3>
-          
+
           {loading ? (
             <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)' }}>获取记录中...</div>
           ) : auths.length === 0 ? (
             <div style={{ padding: 30, border: '1px dashed var(--border-light)', borderRadius: 10, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
-              😿 您尚未对任何岗位进行数据授权。
+              您尚未对任何岗位进行数据授权。
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '420px', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '520px', overflowY: 'auto' }}>
               {auths.map((auth) => (
                 <div key={auth.id} style={{
                   border: '1px solid var(--border-light)',
@@ -245,22 +335,24 @@ export default function AuthorizationTab({ student, diagnosisResult }: Authoriza
                       fontSize: 10,
                       padding: '2px 6px',
                       borderRadius: 6,
-                      background: auth.status === 'active' ? 'rgba(90, 158, 143, 0.12)' : 'rgba(128,128,128,0.12)',
-                      color: auth.status === 'active' ? 'var(--accent-teal)' : 'var(--text-secondary)'
+                      background: auth.status === 'active' ? 'rgba(0,113,227,0.12)' : 'rgba(128,128,128,0.12)',
+                      color: auth.status === 'active' ? 'var(--accent-primary)' : 'var(--text-secondary)'
                     }}>
                       {auth.status === 'active' ? '授权中' : '已撤销'}
                     </span>
                   </div>
                   <div style={{ color: 'var(--text-secondary)', marginTop: 4 }}>意向企业：{auth.enterprise_name}</div>
-                  <div style={{ color: 'var(--text-tertiary)', marginTop: 2 }}>绑定画像版本：V{auth.diagnosis_version} (匹配分: {Math.round(auth.match_score * 100)}%)</div>
-                  
+                  <div style={{ color: 'var(--text-tertiary)', marginTop: 2 }}>
+                    绑定诊断版本：V{auth.diagnosis_version}（匹配分: {Math.round(auth.match_score * 100)}%）
+                  </div>
+
                   {auth.status === 'active' && (
                     <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
                       <button
                         onClick={() => handleRevoke(auth)}
                         disabled={actionId === auth.id}
                         className="btn btn-ghost"
-                        style={{ padding: '3px 8px', fontSize: 11, border: '1px solid var(--accent-rose)', color: 'var(--accent-rose)' }}
+                        style={{ padding: '3px 8px', fontSize: 11, border: '1px solid var(--accent-danger)', color: 'var(--accent-danger)' }}
                       >
                         {actionId === auth.id ? '撤销中...' : '撤销授权'}
                       </button>

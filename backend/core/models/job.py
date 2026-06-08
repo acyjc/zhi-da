@@ -1,5 +1,5 @@
 # Pydantic 模型——岗位创建/查询响应
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class JobCreate(BaseModel):
@@ -12,6 +12,8 @@ class JobCreate(BaseModel):
 
 
 class JobResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     title: str
     category: str
@@ -19,6 +21,3 @@ class JobResponse(BaseModel):
     weight_config: dict
     description: str
     company: str
-
-    class Config:
-        from_attributes = True

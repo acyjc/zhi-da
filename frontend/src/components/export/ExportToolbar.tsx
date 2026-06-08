@@ -1,8 +1,9 @@
 // 导出工具栏——底栏 JSON/Excel/PDF 三个导出按钮，hover 发光
 import { useState, type FC } from 'react'
+import { getAuthToken } from '../../services/api'
 
 interface Props {
-  studentId: string
+  studentId: string | number
   diagnosisId: string
   version?: number
 }
@@ -41,7 +42,10 @@ const ExportToolbar: FC<Props> = ({ studentId, diagnosisId, version }) => {
     if (!url) return
     setExporting(format)
     try {
-      const res = await fetch(url)
+      const headers: Record<string, string> = {}
+      const token = getAuthToken()
+      if (token) headers['Authorization'] = `Bearer ${token}`
+      const res = await fetch(url, { headers })
       if (!res.ok) throw new Error(`导出失败 (${res.status})`)
       const blob = await res.blob()
       const blobUrl = URL.createObjectURL(blob)
@@ -75,9 +79,9 @@ const ExportToolbar: FC<Props> = ({ studentId, diagnosisId, version }) => {
           onClick={() => openExport('json')}
           disabled={exporting !== null}
           onMouseEnter={e => {
-            e.currentTarget.style.borderColor = 'var(--accent-blue)'
-            e.currentTarget.style.color = 'var(--accent-blue)'
-            e.currentTarget.style.boxShadow = '0 0 12px rgba(91,156,245,0.2)'
+            e.currentTarget.style.borderColor = 'var(--accent-primary)'
+            e.currentTarget.style.color = 'var(--accent-primary)'
+            e.currentTarget.style.boxShadow = '0 0 12px rgba(0,113,227,0.2)'
           }}
           onMouseLeave={e => {
             e.currentTarget.style.borderColor = 'var(--border-light)'
@@ -97,8 +101,8 @@ const ExportToolbar: FC<Props> = ({ studentId, diagnosisId, version }) => {
           onClick={() => openExport('excel')}
           disabled={exporting !== null}
           onMouseEnter={e => {
-            e.currentTarget.style.borderColor = 'var(--accent-green)'
-            e.currentTarget.style.color = 'var(--accent-green)'
+            e.currentTarget.style.borderColor = 'var(--accent-success)'
+            e.currentTarget.style.color = 'var(--accent-success)'
             e.currentTarget.style.boxShadow = '0 0 12px rgba(74,222,128,0.2)'
           }}
           onMouseLeave={e => {
@@ -121,8 +125,8 @@ const ExportToolbar: FC<Props> = ({ studentId, diagnosisId, version }) => {
           onClick={() => openExport('pdf')}
           disabled={exporting !== null}
           onMouseEnter={e => {
-            e.currentTarget.style.borderColor = 'var(--accent-rose)'
-            e.currentTarget.style.color = 'var(--accent-rose)'
+            e.currentTarget.style.borderColor = 'var(--accent-danger)'
+            e.currentTarget.style.color = 'var(--accent-danger)'
             e.currentTarget.style.boxShadow = '0 0 12px rgba(244,114,182,0.2)'
           }}
           onMouseLeave={e => {
@@ -144,7 +148,7 @@ const ExportToolbar: FC<Props> = ({ studentId, diagnosisId, version }) => {
       {toast && (
         <div style={{
           position: 'fixed', bottom: 70, left: '50%', transform: 'translateX(-50%)', zIndex: 300,
-          padding: '8px 20px', borderRadius: 8, background: 'var(--accent-rose)', color: '#fff',
+          padding: '8px 20px', borderRadius: 8, background: 'var(--accent-danger)', color: '#fff',
           fontSize: 13, fontWeight: 600, fontFamily: 'var(--font-display)',
           boxShadow: '0 4px 12px rgba(244,114,182,0.3)', animation: 'slideUp 0.2s ease-out',
         }}>

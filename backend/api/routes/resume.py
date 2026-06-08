@@ -1,5 +1,9 @@
 # 简历解析路由——文本解析 + 文件上传解析，调用 LLM 提取结构化信息
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+#
+# 注意：这些端点是公开的（用于新学生创建档案前解析简历），
+# 但会触发 LLM 调用，因此添加了简单的 IP 级限流保护。
+# 生产环境建议使用 Redis 实现更可靠的分布式限流。
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from db.database import get_db
@@ -9,75 +13,65 @@ import json
 import re
 import os
 import logging
+import time
 
 router = APIRouter(prefix="/api/resume", tags=["resume"])
 logger = logging.getLogger("zhi-da.resume")
 
+# 简单内存级限流：每个 IP 每分钟最多 3 次解析请求
+_resume_rate_limit: dict[str, list[float]] = {}
+_RESUME_RATE_LIMIT_MAX = 3
+_RESUME_RATE_LIMIT_WINDOW = 60  # seconds
+
 RESUME_OUTPUT_SCHEMA = """{
-  "name": "<姓名，2-4字中文或英文全名>",
-  "grade": "<大一|大二|大三|大四|研一|研二|研三|空字符串>",
-  "major": "<专业名称>",
-  "target_job": "<推断的岗位方向，如：后端开发工程师 / 前端开发工程师 / AI算法工程师 / 数据分析师>",
-  "tech_skills": { "<技能名>": <0-100分值> },
-  "soft_skills": { "<软技能名>": <0-100分值> },
-  "domain_knowledge": { "<领域名>": <0-100分值> },
-  "project_exp": [
-    {
-      "name": "<项目名称>",
-      "role": "<担任角色，如：后端开发 / 前端开发 / 项目负责人>",
-      "description": "<1-2句话描述>",
-      "duration": "<时间段，如：2023.09-2024.01>"
-    }
-  ],
-  "summary": "<一句话能力总结>"
+  "name": "<姓名>",
+  "grade": "<大一~大四/研一~研三，无法判断则空字符串>",
+  "major": "<专业>",
+  "target_job": "<推断的岗位方向>",
+  "summary": "<一句话能力总结>",
+  "tech_skills": { "<技能名>": <0-100> },
+  "soft_skills": { "<软技能名>": <0-100> },
+  "domain_knowledge": { "<领域名>": <0-100> },
+  "project_exp": [{ "name": "", "role": "", "description": "", "duration": "" }],
+  "academic_foundation": {
+    "gpa": "<有则填，无则空字符串，禁止猜测>",
+    "rank": "<有则填，无则空字符串，禁止猜测>",
+    "core_courses": [{ "name": "", "score": 0 }],
+    "awards": [],
+    "normalized_score": <0-100>
+  },
+  "soft_skill_evidence": {
+    "teamwork": { "level": "<strong|medium|weak>", "evidence": [], "normalized_score": <0-100> },
+    "communication": { "level": "<strong|medium|weak>", "evidence": [], "normalized_score": <0-100> },
+    "ownership": { "level": "<strong|medium|weak>", "evidence": [], "normalized_score": <0-100> }
+  },
+  "profile_sections": {
+    "basic_info": { "name": "", "grade": "", "school": "", "education_level": "<本科|硕士|博士|大专|空>", "major": "", "phone": "", "email": "" },
+    "education": { "school": "", "education_level": "", "major": "", "rank_description": "<禁止猜测>", "english_level": "" },
+    "job_intention": { "target_job": "", "expected_industry": "", "job_type": "<全职|实习|空>", "available_date": "" },
+    "internship_exp": [{ "company_name": "", "position_name": "", "start_date": "", "end_date": "", "description": "" }],
+    "project_exp": [{ "project_name": "", "project_role": "", "start_date": "", "end_date": "", "description": "" }],
+    "campus_exp": [{ "activity_name": "", "role": "", "start_date": "", "end_date": "", "description": "" }],
+    "awards": [{ "award_date": "", "award_name": "", "level": "<国家级|省级|校级|院级|空>", "description": "" }],
+    "skills": [{ "name": "", "level": "<精通|熟练|良好|了解|入门>", "description": "" }],
+    "publications": [{ "pub_type": "<论文|专利>", "name": "", "pub_date": "", "description": "" }],
+    "self_evaluation": ""
+  }
 }"""
 
-SYSTEM_PROMPT = f"""你是一个专业的简历解析助手。请严格按照以下JSON Schema解析简历：
+SYSTEM_PROMPT = f"""请严格按以下JSON Schema解析简历，只返回纯JSON，不要任何解释或代码块标记。
 
-{ RESUME_OUTPUT_SCHEMA }
+{RESUME_OUTPUT_SCHEMA}
 
-## 解析规则
-
-### 姓名
-- 优先从"姓名："、"名字："标签提取
-- 否则取首行开头2-4个中文字，或首行英文名如"Tom Zhang"
-- 如完全无法判断，返回空字符串
-
-### 年级
-- 匹配"大一/大二/大三/大四/研一/研二/研三"或入学年份（2019→推算大四）
-- 无法判断返回空字符串
-
-### 专业
-- 匹配专业关键词："计算机科学/软件工程/数据科学/人工智能/电子信息/通信工程/自动化/数学/统计"等
-- 无法判断提取简历中最可能的专业名
-
-### 技术技能评分
-- **精通**（简历写"精通/深入理解/源码级/架构设计"）→ 90-100
-- **熟练**（简历写"熟练/独立开发/负责过"）→ 75-85
-- **掌握**（简历写"掌握/熟悉/使用过"）→ 60-70
-- **了解**（简历只提了名字/课程学过）→ 40-55
-- 每个技能评分必须有依据，不要所有技能同一分值
-
-### 软技能
-- 从项目描述中推断：参与团队项目的→"团队协作"、做过汇报答辩的→"沟通表达"、负责多任务的→"项目管理"
-- 至少返回1-3个，不要返回空对象
-
-### 领域知识
-- 根据简历中的技术栈推断："Spring/MyBatis"→"后端开发"、"Vue/React"→"前端开发"、"PyTorch/TensorFlow"→"深度学习"
-
-### 项目经历
-- 从"项目经验/实习经历/项目实践"等段落提取
-- 每个项目必须包含name、role、description三个字段
-- 如简历中无明确项目段落，`project_exp` 返回空数组 `[]`
-
-### 目标岗位
-- 根据技能聚类推断最匹配的岗位方向
-
-## 强制要求
-1. **只返回上述JSON Schema格式的纯JSON**，不要任何解释文字
-2. 不要包裹在 ```json ``` 代码块中
-3. 所有字段都必须存在，可为空字符串/空对象/空数组
-4. tech_skills分值必须有区分度，不要全是相同分值"""
+## 核心规则
+1. 简历中**没有明确写出**的信息（GPA、排名、电话、邮箱等），必须返回空字符串""，**绝对禁止猜测或编造**
+2. 软技能 level：有明确协作/答辩/主导证据才能给 strong，无证据给 weak
+3. tech_skills 评分标准：精通(90-100)/熟练(75-85)/掌握(60-70)/了解(40-55)，须有区分度
+4. domain_knowledge 从技术栈推断：Spring→后端开发、React→前端开发、PyTorch→深度学习
+5. 所有字段必须存在，无数据时返回空字符串""或空数组[]或空对象{{}}
+6. profile_sections 中各子对象必须存在，skills 至少提取1项，包含简历中所有技能
+7. project_exp 顶层和 profile_sections.project_exp 内容一致
+8. school 从"XX大学/XX学院"提取，education_level 从年级或明确标注推断"""
 
 
 class ResumeParseRequest(BaseModel):
@@ -94,6 +88,9 @@ class ResumeParseResponse(BaseModel):
     domain_knowledge: dict = {}
     project_exp: list = []
     summary: str = ""
+    academic_foundation: dict = {}
+    soft_skill_evidence: dict = {}
+    profile_sections: dict = {}
 
 
 def _extract_json(text: str) -> dict:
@@ -154,6 +151,244 @@ def _validate_and_clean(data: dict) -> dict:
         })
     result["project_exp"] = cleaned_projects
 
+    # academic_foundation
+    academic = data.get("academic_foundation", {})
+    if not isinstance(academic, dict):
+        academic = {}
+    courses = academic.get("core_courses", [])
+    cleaned_courses = []
+    if isinstance(courses, list):
+        for c in courses:
+            if isinstance(c, dict) and "name" in c:
+                try:
+                    score = float(c.get("score", 0))
+                except (ValueError, TypeError):
+                    score = 0.0
+                cleaned_courses.append({
+                    "name": str(c["name"]).strip(),
+                    "score": score
+                })
+    awards = academic.get("awards", [])
+    cleaned_awards = []
+    if isinstance(awards, list):
+        cleaned_awards = [str(a).strip() for a in awards if a]
+    try:
+        norm_score = int(academic.get("normalized_score", 0))
+    except (ValueError, TypeError):
+        norm_score = 0
+    result["academic_foundation"] = {
+        "gpa": str(academic.get("gpa", "")).strip(),
+        "rank": str(academic.get("rank", "")).strip(),
+        "core_courses": cleaned_courses,
+        "awards": cleaned_awards,
+        "normalized_score": max(0, min(100, norm_score))
+    }
+
+    # soft_skill_evidence
+    soft_ev = data.get("soft_skill_evidence", {})
+    if not isinstance(soft_ev, dict):
+        soft_ev = {}
+    cleaned_soft_ev = {}
+    for skill in ["teamwork", "communication", "ownership"]:
+        s_data = soft_ev.get(skill, {})
+        if not isinstance(s_data, dict):
+            s_data = {}
+        level = str(s_data.get("level", "weak")).strip().lower()
+        if level not in ["strong", "medium", "weak"]:
+            level = "weak"
+        evidence = s_data.get("evidence", [])
+        cleaned_evidence = []
+        if isinstance(evidence, list):
+            cleaned_evidence = [str(e).strip() for e in evidence if e]
+        try:
+            norm_score = int(s_data.get("normalized_score", 40))
+        except (ValueError, TypeError):
+            norm_score = 40
+        cleaned_soft_ev[skill] = {
+            "level": level,
+            "evidence": cleaned_evidence,
+            "normalized_score": max(0, min(100, norm_score))
+        }
+    result["soft_skill_evidence"] = cleaned_soft_ev
+
+    # profile_sections — 新模块化结构
+    ps = data.get("profile_sections", {})
+    if not isinstance(ps, dict):
+        ps = {}
+
+    # basic_info
+    basic = ps.get("basic_info", {})
+    if not isinstance(basic, dict):
+        basic = {}
+    cleaned_basic = {
+        "name": str(basic.get("name", "")).strip(),
+        "grade": str(basic.get("grade", "")).strip(),
+        "school": str(basic.get("school", "")).strip(),
+        "education_level": str(basic.get("education_level", "")).strip(),
+        "major": str(basic.get("major", "")).strip(),
+        "phone": str(basic.get("phone", "")).strip(),
+        "email": str(basic.get("email", "")).strip(),
+    }
+
+    # education
+    edu = ps.get("education", {})
+    if not isinstance(edu, dict):
+        edu = {}
+    cleaned_edu = {
+        "school": str(edu.get("school", "")).strip(),
+        "education_level": str(edu.get("education_level", "")).strip(),
+        "major": str(edu.get("major", "")).strip(),
+        "rank_description": str(edu.get("rank_description", "")).strip(),
+        "english_level": str(edu.get("english_level", "")).strip(),
+    }
+
+    # job_intention
+    intent = ps.get("job_intention", {})
+    if not isinstance(intent, dict):
+        intent = {}
+    cleaned_intent = {
+        "target_job": str(intent.get("target_job", "")).strip(),
+        "expected_industry": str(intent.get("expected_industry", "")).strip(),
+        "job_type": str(intent.get("job_type", "")).strip(),
+        "available_date": str(intent.get("available_date", "")).strip(),
+    }
+
+    # internship_exp
+    internships = ps.get("internship_exp", [])
+    if not isinstance(internships, list):
+        internships = []
+    cleaned_internships = []
+    for item in internships:
+        if not isinstance(item, dict):
+            continue
+        company = str(item.get("company_name", "")).strip()
+        if not company:
+            continue
+        cleaned_internships.append({
+            "company_name": company,
+            "position_name": str(item.get("position_name", "")).strip(),
+            "start_date": str(item.get("start_date", "")).strip(),
+            "end_date": str(item.get("end_date", "")).strip(),
+            "description": str(item.get("description", "")).strip(),
+        })
+
+    # project_exp (in profile_sections)
+    ps_projects = ps.get("project_exp", [])
+    if not isinstance(ps_projects, list):
+        ps_projects = []
+    cleaned_ps_projects = []
+    for item in ps_projects:
+        if not isinstance(item, dict):
+            continue
+        pname = str(item.get("project_name", "")).strip()
+        if not pname:
+            continue
+        cleaned_ps_projects.append({
+            "project_name": pname,
+            "project_role": str(item.get("project_role", "")).strip(),
+            "start_date": str(item.get("start_date", "")).strip(),
+            "end_date": str(item.get("end_date", "")).strip(),
+            "description": str(item.get("description", "")).strip(),
+        })
+
+    # campus_exp
+    campus = ps.get("campus_exp", [])
+    if not isinstance(campus, list):
+        campus = []
+    cleaned_campus = []
+    for item in campus:
+        if not isinstance(item, dict):
+            continue
+        aname = str(item.get("activity_name", "")).strip()
+        if not aname:
+            continue
+        cleaned_campus.append({
+            "activity_name": aname,
+            "role": str(item.get("role", "")).strip(),
+            "start_date": str(item.get("start_date", "")).strip(),
+            "end_date": str(item.get("end_date", "")).strip(),
+            "description": str(item.get("description", "")).strip(),
+        })
+
+    # awards
+    awards_ps = ps.get("awards", [])
+    if not isinstance(awards_ps, list):
+        awards_ps = []
+    cleaned_awards_ps = []
+    for item in awards_ps:
+        if not isinstance(item, dict):
+            continue
+        aname = str(item.get("award_name", "")).strip()
+        if not aname:
+            continue
+        level = str(item.get("level", "")).strip()
+        if level not in ["国家级", "省级", "校级", "院级", ""]:
+            level = ""
+        cleaned_awards_ps.append({
+            "award_date": str(item.get("award_date", "")).strip(),
+            "award_name": aname,
+            "level": level,
+            "description": str(item.get("description", "")).strip(),
+        })
+
+    # skills
+    skills_ps = ps.get("skills", [])
+    if not isinstance(skills_ps, list):
+        skills_ps = []
+    cleaned_skills = []
+    valid_levels = {"精通", "熟练", "良好", "了解", "入门"}
+    for item in skills_ps:
+        if not isinstance(item, dict):
+            continue
+        sname = str(item.get("name", "")).strip()
+        if not sname:
+            continue
+        slevel = str(item.get("level", "了解")).strip()
+        if slevel not in valid_levels:
+            slevel = "了解"
+        cleaned_skills.append({
+            "name": sname,
+            "level": slevel,
+            "description": str(item.get("description", "")).strip(),
+        })
+
+    # publications
+    pubs = ps.get("publications", [])
+    if not isinstance(pubs, list):
+        pubs = []
+    cleaned_pubs = []
+    for item in pubs:
+        if not isinstance(item, dict):
+            continue
+        pname = str(item.get("name", "")).strip()
+        if not pname:
+            continue
+        ptype = str(item.get("pub_type", "")).strip()
+        if ptype not in ["论文", "专利", ""]:
+            ptype = ""
+        cleaned_pubs.append({
+            "pub_type": ptype,
+            "name": pname,
+            "pub_date": str(item.get("pub_date", "")).strip(),
+            "description": str(item.get("description", "")).strip(),
+        })
+
+    # self_evaluation
+    self_eval = str(ps.get("self_evaluation", "")).strip()
+
+    result["profile_sections"] = {
+        "basic_info": cleaned_basic,
+        "education": cleaned_edu,
+        "job_intention": cleaned_intent,
+        "internship_exp": cleaned_internships,
+        "project_exp": cleaned_ps_projects,
+        "campus_exp": cleaned_campus,
+        "awards": cleaned_awards_ps,
+        "skills": cleaned_skills,
+        "publications": cleaned_pubs,
+        "self_evaluation": self_eval,
+    }
+
     return result
 
 
@@ -164,7 +399,7 @@ async def parse_resume_with_llm(text: str) -> ResumeParseResponse:
     llm = get_llm_client()
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": f"请解析以下简历：\n\n{text[:6000]}"},
+        {"role": "user", "content": f"请解析以下简历：\n\n{text[:8000]}"},
     ]
     logger.info("开始LLM简历解析，文本长度=%d", len(text))
     response = await llm.complete(messages)
@@ -188,6 +423,9 @@ async def parse_resume_with_llm(text: str) -> ResumeParseResponse:
         domain_knowledge=cleaned["domain_knowledge"],
         project_exp=cleaned["project_exp"],
         summary=cleaned["summary"],
+        academic_foundation=cleaned["academic_foundation"],
+        soft_skill_evidence=cleaned["soft_skill_evidence"],
+        profile_sections=cleaned.get("profile_sections", {}),
     )
 
 
@@ -239,13 +477,44 @@ async def extract_text_from_file(file: UploadFile) -> str:
         return content.decode("utf-8", errors="ignore")
 
 
+def _check_resume_rate_limit(request: Request):
+    """简单的 IP 级限流检查：每分钟最多 3 次解析请求。"""
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    # 清理过期记录
+    if client_ip in _resume_rate_limit:
+        _resume_rate_limit[client_ip] = [
+            t for t in _resume_rate_limit[client_ip] if now - t < _RESUME_RATE_LIMIT_WINDOW
+        ]
+    else:
+        _resume_rate_limit[client_ip] = []
+    # 检查是否超限
+    if len(_resume_rate_limit[client_ip]) >= _RESUME_RATE_LIMIT_MAX:
+        raise HTTPException(
+            429,
+            f"解析请求过于频繁，请 {_RESUME_RATE_LIMIT_WINDOW} 秒后再试",
+            headers={"Retry-After": str(_RESUME_RATE_LIMIT_WINDOW)},
+        )
+    _resume_rate_limit[client_ip].append(now)
+
+
 @router.post("/parse", response_model=ResumeParseResponse)
-async def parse_resume(req: ResumeParseRequest, db: AsyncSession = Depends(get_db)):
+async def parse_resume(
+    req: ResumeParseRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    _check_resume_rate_limit(request)
     return await parse_resume_with_llm(req.resume_text)
 
 
 @router.post("/upload", response_model=ResumeParseResponse)
-async def upload_resume(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+async def upload_resume(
+    request: Request,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    _check_resume_rate_limit(request)
     filename = file.filename or ""
     ext = os.path.splitext(filename)[1].lower()
     if ext not in ALLOWED_UPLOAD_TYPES:

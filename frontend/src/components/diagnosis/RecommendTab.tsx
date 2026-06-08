@@ -1,23 +1,17 @@
-// 就业推荐 Tab——5 张岗位推荐卡片，含圆形进度和匹配度
+// 就业推荐 Tab——岗位推荐卡片，含圆形进度、推荐理由、匹配/缺失技能
 import type { FC } from 'react'
-
-interface JobItem {
-  job_id: string
-  title: string
-  score: number
-  company: string
-}
+import type { RecommendedJob } from '../../types'
 
 interface Props {
-  top5Jobs: JobItem[]
+  top5Jobs: RecommendedJob[]
 }
 
 const rankBadgeColors: Record<number, string> = {
-  1: 'var(--accent-amber)',
+  1: 'var(--accent-warning)',
   2: '#c0c0c0',
   3: '#cd7f32',
-  4: 'var(--accent-blue)',
-  5: 'var(--accent-violet)',
+  4: 'var(--accent-primary)',
+  5: 'var(--accent-primary)',
 }
 
 const RecommendTab: FC<Props> = ({ top5Jobs }) => {
@@ -40,8 +34,9 @@ const RecommendTab: FC<Props> = ({ top5Jobs }) => {
     }}>
       {top5Jobs.map((job, i) => {
         const rank = i + 1
-        const pct = (job.score ?? 0) * 100
-        const color = pct >= 70 ? 'var(--accent-green)' : pct >= 40 ? 'var(--accent-amber)' : 'var(--accent-blue)'
+        // 兼容 match_score 和旧的 score 字段
+        const pct = ((job.match_score ?? (job as any).score ?? 0)) * 100
+        const color = pct >= 70 ? 'var(--accent-success)' : pct >= 40 ? 'var(--accent-warning)' : 'var(--accent-primary)'
         const circumference = 2 * Math.PI * 28
         const offset = circumference - (pct / 100) * circumference
 
@@ -58,8 +53,8 @@ const RecommendTab: FC<Props> = ({ top5Jobs }) => {
             }}
             onMouseEnter={e => {
               e.currentTarget.style.transform = 'translateY(-4px)'
-              e.currentTarget.style.boxShadow = `0 8px 24px rgba(91,156,245,0.12)`
-              e.currentTarget.style.borderColor = 'var(--accent-blue)'
+              e.currentTarget.style.boxShadow = `0 8px 24px rgba(0,113,227,0.12)`
+              e.currentTarget.style.borderColor = 'var(--accent-primary)'
             }}
             onMouseLeave={e => {
               e.currentTarget.style.transform = ''
@@ -100,7 +95,7 @@ const RecommendTab: FC<Props> = ({ top5Jobs }) => {
                   left: '50%',
                   transform: 'translate(-50%, -50%)',
                   fontSize: 13,
-                  fontFamily: "Rajdhani, sans-serif",
+                  fontFamily: "var(--font-display)",
                   fontWeight: 700,
                   color,
                 }}>
@@ -114,6 +109,38 @@ const RecommendTab: FC<Props> = ({ top5Jobs }) => {
             <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)', marginBottom: 10 }}>
               {job.company || '知名企业'}
             </div>
+
+            {/* 推荐理由 */}
+            {job.reason && (
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 8, padding: '6px 10px', borderLeft: '2px solid var(--accent-primary)', background: 'var(--bg-hover)', borderRadius: '0 4px 4px 0' }}>
+                {job.reason}
+              </div>
+            )}
+
+            {/* 匹配技能 */}
+            {job.matched_skills && job.matched_skills.length > 0 && (
+              <div style={{ marginBottom: 6 }}>
+                <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginBottom: 3 }}>匹配技能</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {job.matched_skills.map(s => (
+                    <span key={s} style={{ fontSize: 10, padding: '2px 7px', borderRadius: 4, background: 'rgba(52,199,89,0.15)', color: 'var(--accent-success)' }}>{s}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 缺失技能 */}
+            {job.missing_skills && job.missing_skills.length > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginBottom: 3 }}>待提升</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {job.missing_skills.map(s => (
+                    <span key={s} style={{ fontSize: 10, padding: '2px 7px', borderRadius: 4, background: 'rgba(255,149,0,0.15)', color: 'var(--accent-warning)' }}>{s}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
               匹配度 <span style={{ color, fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{pct.toFixed(0)}%</span>，
               {pct >= 70
@@ -122,6 +149,13 @@ const RecommendTab: FC<Props> = ({ top5Jobs }) => {
                   ? '中等匹配，可针对性提升短板'
                   : '较低匹配，建议优先夯实基础能力'}
             </div>
+
+            {/* 置信度 */}
+            {job.confidence !== undefined && (
+              <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 4 }}>
+                置信度 {(job.confidence * 100).toFixed(0)}%
+              </div>
+            )}
           </div>
         )
       })}
