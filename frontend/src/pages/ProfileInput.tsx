@@ -796,9 +796,19 @@ export default function ProfileInput() {
           </div>
         </div>
         <div className="workspace-header-right">
-          <div className="completeness-pill">
-            <div className="completeness-pill-bar" style={{ width: `${completeness.pct}%` }} />
-            <span>完整度 {completeness.pct}%</span>
+          <div className="status-card">
+            <div className="status-card-top">
+              <span className="status-card-label">档案完整度</span>
+              <span className="status-card-pct">{completeness.pct}%</span>
+            </div>
+            <div className="status-card-bar">
+              <div className="status-card-bar-fill" style={{ width: `${completeness.pct}%` }} />
+            </div>
+            {completeness.missing.length > 0 && completeness.pct < 100 && (
+              <div className="status-card-missing">
+                还需：{completeness.missing.slice(0, 2).join('、')}{completeness.missing.length > 2 ? ` 等${completeness.missing.length}项` : ''}
+              </div>
+            )}
           </div>
           <button className="btn btn-primary" onClick={handleSubmit} disabled={step === 'submitting'}>
             {step === 'submitting' ? '提交中...' : '保存并开始诊断'}
@@ -971,7 +981,7 @@ const PROFILE_CSS = `
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 16px 28px;
+    padding: 12px 28px;
     background: var(--bg-card);
     border-bottom: 1px solid var(--border-light);
     position: sticky;
@@ -999,30 +1009,57 @@ const PROFILE_CSS = `
     display: flex;
     align-items: center;
     gap: var(--space-3);
+    flex-shrink: 0;
   }
 
-  /* Completeness pill */
-  .completeness-pill {
-    position: relative;
+  /* Completeness status card */
+  .status-card {
     display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 16px;
+    border-radius: var(--radius-md);
+    background: var(--bg-page);
+    border: 1px solid var(--border-light);
+    min-width: 200px;
+  }
+  .status-card-top {
+    display: flex;
+    justify-content: space-between;
     align-items: center;
-    padding: 6px 14px;
-    border-radius: 999px;
-    background: rgba(0,113,227,0.06);
-    overflow: hidden;
+  }
+  .status-card-label {
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+  .status-card-pct {
+    font-size: 16px;
+    font-weight: 700;
+    font-family: var(--font-display);
     color: var(--accent-primary);
+    letter-spacing: -0.01em;
+  }
+  .status-card-bar {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border-light);
+    overflow: hidden;
+  }
+  .status-card-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--accent-primary);
+    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .status-card-missing {
+    font-size: 11px;
+    color: var(--accent-warning);
+    line-height: 1.4;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  .completeness-pill-bar {
-    position: absolute;
-    left: 0; top: 0; bottom: 0;
-    background: rgba(0,113,227,0.1);
-    border-radius: 999px;
-    transition: width 0.4s ease;
-  }
-  .completeness-pill span { position: relative; z-index: 1; }
 
   /* ── Two-column Workspace ── */
   .profile-workspace {
@@ -1043,7 +1080,7 @@ const PROFILE_CSS = `
   /* ── Left Sidebar ── */
   .profile-sidebar {
     border-right: 1px solid var(--border-light);
-    padding: var(--space-5) var(--space-4);
+    padding: var(--space-5) var(--space-3);
     background: var(--bg-card);
     position: sticky;
     top: 64px;
@@ -1107,19 +1144,17 @@ const PROFILE_CSS = `
     padding: 12px 16px;
     border: none;
     border-radius: var(--radius-md);
-    background: linear-gradient(135deg, #34c759 0%, #30d158 100%);
+    background: var(--accent-success);
     color: #fff;
     font-size: 13px;
-    font-weight: 700;
+    font-weight: 600;
     cursor: pointer;
     text-align: center;
     transition: all 0.2s;
-    letter-spacing: 0.3px;
-    box-shadow: 0 2px 8px rgba(52,199,89,0.25);
+    letter-spacing: 0.2px;
   }
   .sidebar-ai-btn:hover {
     filter: brightness(1.08);
-    box-shadow: 0 4px 14px rgba(52,199,89,0.35);
     transform: translateY(-1px);
   }
 
@@ -1138,10 +1173,14 @@ const PROFILE_CSS = `
     background: var(--bg-card);
     border: 1px solid var(--border-card);
     border-radius: var(--radius-xl);
-    padding: var(--space-6);
+    padding: var(--space-6) 28px;
     margin-bottom: var(--space-5);
-    box-shadow: var(--shadow-sm);
+    box-shadow: var(--shadow-xs);
     animation: profileCardIn 0.35s ease-out both;
+    transition: box-shadow 0.25s ease;
+  }
+  .profile-section-card:hover {
+    box-shadow: var(--shadow-sm);
   }
   @keyframes profileCardIn {
     from { opacity: 0; transform: translateY(8px); }
@@ -1156,11 +1195,14 @@ const PROFILE_CSS = `
     display: flex;
     align-items: center;
     gap: var(--space-2);
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid var(--border-subtle);
   }
   .profile-section-desc {
     font-size: var(--text-sm);
     color: var(--text-tertiary);
-    margin-bottom: var(--space-4);
+    margin-bottom: var(--space-5);
+    margin-top: var(--space-3);
     line-height: 1.5;
   }
   .required-tag {
@@ -1199,9 +1241,13 @@ const PROFILE_CSS = `
   .profile-entry-card {
     border: 1px solid var(--border-light);
     border-radius: var(--radius-md);
-    padding: var(--space-4);
+    padding: var(--space-4) var(--space-5);
     margin-bottom: var(--space-3);
     background: var(--bg-page);
+    transition: border-color 0.2s;
+  }
+  .profile-entry-card:hover {
+    border-color: var(--border-card);
   }
   .entry-card-header {
     display: flex;
@@ -1299,17 +1345,24 @@ const PROFILE_CSS = `
 
   /* ── Attachment Cards ── */
   .attachment-upload-cards {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+    display: flex;
     gap: var(--space-3);
     margin-top: var(--space-3);
+    overflow-x: auto;
+    padding-bottom: var(--space-1);
   }
-  @media (max-width: 700px) { .attachment-upload-cards { grid-template-columns: 1fr; } }
+  @media (max-width: 700px) { .attachment-upload-cards { flex-direction: column; } }
   .att-upload-card {
+    flex: 1;
+    min-width: 180px;
     padding: var(--space-4);
     border: 1px solid var(--border-light);
     border-radius: var(--radius-md);
     background: var(--bg-page);
+    transition: border-color 0.2s;
+  }
+  .att-upload-card:hover {
+    border-color: var(--accent-primary);
   }
   .att-upload-info strong {
     font-size: 13px;
@@ -1357,8 +1410,12 @@ const PROFILE_CSS = `
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: var(--space-6) 0;
+    padding: var(--space-5) var(--space-6);
     margin-top: var(--space-4);
+    background: var(--bg-card);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xs);
   }
 
   /* ── Error Alert ── */
@@ -1420,8 +1477,8 @@ const PROFILE_CSS = `
   @keyframes bounce { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; } 40% { transform: scale(1); opacity: 1; } }
 
   /* ── Dark Mode Overrides ── */
-  body.dark .completeness-pill { background: rgba(10,132,255,0.12); }
-  body.dark .completeness-pill-bar { background: rgba(10,132,255,0.16); }
+  body.dark .status-card { background: rgba(28,28,30,0.6); border-color: rgba(255,255,255,0.06); }
+  body.dark .status-card-bar { background: rgba(255,255,255,0.08); }
   body.dark .sidebar-item.active { background: rgba(10,132,255,0.12); }
   body.dark .inline-input:focus { box-shadow: 0 0 0 3px rgba(10,132,255,0.15); }
   body.dark .upload-zone:hover { background: rgba(10,132,255,0.06); }

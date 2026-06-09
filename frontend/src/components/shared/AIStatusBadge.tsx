@@ -1,6 +1,5 @@
 // AI 状态指示器——显示当前 AI 服务可用性和诊断状态
-import { useState, useEffect } from 'react'
-import type { FC } from 'react'
+import { useState, type FC } from 'react'
 
 interface Props {
   aiStatus?: string  // available / missing_key / provider_error / schema_error / fallback_rule_based
@@ -24,6 +23,7 @@ const AIStatusBadge: FC<Props> = ({ aiStatus = 'available', compact = false }) =
 
   return (
     <div
+      className="ai-status-badge"
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 6,
         padding: compact ? '2px 8px' : '4px 12px',
@@ -49,7 +49,7 @@ const AIStatusBadge: FC<Props> = ({ aiStatus = 'available', compact = false }) =
           background: 'var(--bg-card)', border: '1px solid var(--border-light)',
           color: 'var(--text-secondary)', fontSize: 11, lineHeight: 1.5,
           whiteSpace: 'nowrap', zIndex: 100,
-          boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+          boxShadow: 'var(--shadow-sm)',
         }}>
           {config.desc}
         </div>

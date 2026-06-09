@@ -899,7 +899,7 @@ export default function AdminDashboard() {
             height: '80vh',
             overflow: 'hidden'
           }}>
-            <div style={{ padding: '20px 30px', borderBottom: '1px solid var(--border-light)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="modal-header">
               <div>
                 <h3 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>学生综合成长档案：{selectedStudent.student.name}</h3>
                 <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
@@ -908,14 +908,13 @@ export default function AdminDashboard() {
               </div>
               <button
                 onClick={() => setShowStudentModal(false)}
-                className="modal-close-btn"
-                style={{ background: 'transparent', border: 'none', fontSize: 24, cursor: 'pointer', color: 'var(--text-secondary)' }}
+                className="btn btn-ghost btn-sm"
               >
                 &times;
               </button>
             </div>
 
-            <div style={{ flex: 1, overflowY: 'auto', padding: 30, display: 'flex', flexDirection: 'column', gap: 28 }}>
+            <div className="modal-body">
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: 28 }}>
                 {/* Left: diagnoses trend */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

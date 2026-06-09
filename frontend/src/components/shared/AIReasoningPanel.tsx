@@ -74,23 +74,10 @@ const AIReasoningPanel: FC<Props> = ({ reasoning, nextActions, onNextAction }) =
     : ''
 
   return (
-    <div style={{
-      border: '1px solid var(--border-light)',
-      borderRadius: 8,
-      overflow: 'hidden',
-      background: 'var(--bg-card)',
-      backdropFilter: 'blur(12px)',
-    }}>
+    <div className="ai-panel">
       {/* Fallback degradation banner */}
       {hasFallback && (
-        <div style={{
-          padding: '8px 14px',
-          background: 'rgba(255,159,10,0.08)',
-          borderBottom: '1px solid rgba(255,159,10,0.15)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-        }}>
+        <div className="ai-panel-fallback-banner">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent-warning)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
             <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
@@ -105,16 +92,8 @@ const AIReasoningPanel: FC<Props> = ({ reasoning, nextActions, onNextAction }) =
       )}
 
       <button
+        className="ai-panel-header"
         onClick={() => setExpanded(!expanded)}
-        style={{
-          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '10px 14px', background: 'var(--bg-hover)',
-          border: 'none', cursor: 'pointer', color: 'var(--text-secondary)',
-          fontFamily: 'var(--font-display)', fontSize: 12, fontWeight: 500,
-          letterSpacing: '0.3px', transition: 'color 0.2s ease',
-        }}
-        onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)' }}
-        onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-secondary)' }}
       >
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -122,30 +101,17 @@ const AIReasoningPanel: FC<Props> = ({ reasoning, nextActions, onNextAction }) =
           </svg>
           AI 依据
           {skillLabel && (
-            <span style={{
-              fontSize: 10, padding: '1px 6px', borderRadius: 4,
-              background: 'rgba(0,113,227,0.08)', color: 'var(--accent-primary)',
-              border: '1px solid rgba(0,113,227,0.15)',
-              fontWeight: 600, fontFamily: 'var(--font-mono)',
-            }}>
+            <span className="ai-panel-tag ai-panel-tag-primary">
               {skillLabel}
             </span>
           )}
           {confBadge && (
-            <span style={{
-              fontSize: 10, padding: '1px 6px', borderRadius: 4,
-              background: confBadge.bg, color: confBadge.color,
-              fontWeight: 600, fontFamily: 'var(--font-mono)',
-            }}>
+            <span className="ai-panel-tag" style={{ background: confBadge.bg, color: confBadge.color }}>
               {confBadge.text}
             </span>
           )}
           {hasFallback && (
-            <span style={{
-              fontSize: 10, padding: '1px 6px', borderRadius: 4,
-              background: 'rgba(255,159,10,0.12)', color: 'var(--accent-warning)',
-              fontWeight: 600, fontFamily: 'var(--font-mono)',
-            }}>
+            <span className="ai-panel-tag ai-panel-tag-warning">
               降级
             </span>
           )}
@@ -158,18 +124,12 @@ const AIReasoningPanel: FC<Props> = ({ reasoning, nextActions, onNextAction }) =
           <polyline points="6 9 12 15 18 9"/>
         </svg>
       </button>
-      <div style={{
-        maxHeight: expanded ? 600 : 0,
-        overflow: 'hidden',
-        transition: 'max-height 0.35s ease',
-      }}>
-        <div style={{ padding: '12px 14px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div className={`ai-panel-body${expanded ? ' open' : ''}`}>
+        <div className="ai-panel-content">
           {/* 目标 */}
           {reasoning.goal && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 600, fontFamily: 'var(--font-display)' }}>
-                目标
-              </span>
+              <span className="ai-panel-label">目标</span>
               <span style={{ fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.5 }}>
                 {reasoning.goal}
               </span>
@@ -179,14 +139,11 @@ const AIReasoningPanel: FC<Props> = ({ reasoning, nextActions, onNextAction }) =
           {/* 选择的 Skill */}
           {reasoning.selected_skill && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 600, fontFamily: 'var(--font-display)' }}>
-                能力
-              </span>
+              <span className="ai-panel-label">能力</span>
               <span style={{
                 fontSize: 11, padding: '2px 10px', borderRadius: 6,
                 background: 'rgba(0,113,227,0.06)', color: 'var(--accent-primary)',
-                border: '1px solid rgba(0,113,227,0.12)',
-                fontWeight: 500,
+                border: '1px solid rgba(0,113,227,0.12)', fontWeight: 500,
               }}>
                 {skillLabel}
               </span>
@@ -204,9 +161,7 @@ const AIReasoningPanel: FC<Props> = ({ reasoning, nextActions, onNextAction }) =
 
           {reasoning.basis && reasoning.basis.length > 0 && (
             <div>
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4, fontWeight: 600, fontFamily: 'var(--font-display)' }}>
-                依据
-              </div>
+              <div className="ai-panel-label" style={{ marginBottom: 4 }}>依据</div>
               <ul style={{ margin: 0, paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 2 }}>
                 {reasoning.basis.map((b, i) => (
                   <li key={i} style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{b}</li>
@@ -217,16 +172,9 @@ const AIReasoningPanel: FC<Props> = ({ reasoning, nextActions, onNextAction }) =
 
           {reasoning.used_tools && reasoning.used_tools.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 600, fontFamily: 'var(--font-display)' }}>
-                工具
-              </span>
+              <span className="ai-panel-label">工具</span>
               {reasoning.used_tools.map((tool, i) => (
-                <span key={i} style={{
-                  fontSize: 10, padding: '2px 8px', borderRadius: 4,
-                  background: 'rgba(0,113,227,0.08)', color: 'var(--accent-primary)',
-                  border: '1px solid rgba(0,113,227,0.15)',
-                  fontFamily: 'var(--font-mono)', fontWeight: 500,
-                }}>
+                <span key={i} className="ai-panel-tag ai-panel-tag-primary">
                   {tool}
                 </span>
               ))}
@@ -234,10 +182,7 @@ const AIReasoningPanel: FC<Props> = ({ reasoning, nextActions, onNextAction }) =
           )}
 
           {reasoning.limits && reasoning.limits.length > 0 && (
-            <div style={{
-              padding: '8px 10px', borderRadius: 6,
-              background: 'rgba(255,149,0,0.06)', border: '1px solid rgba(255,149,0,0.12)',
-            }}>
+            <div className="ai-panel-limits">
               <div style={{ fontSize: 11, color: 'var(--accent-warning)', marginBottom: 4, fontWeight: 600, fontFamily: 'var(--font-display)' }}>
                 局限
               </div>
@@ -266,21 +211,9 @@ const AIReasoningPanel: FC<Props> = ({ reasoning, nextActions, onNextAction }) =
               {nextActions.map((action, i) => (
                 <button
                   key={i}
+                  className="ai-panel-action"
                   onClick={() => onNextAction?.(action)}
-                  style={{
-                    fontSize: 12, padding: '5px 14px', borderRadius: 6,
-                    background: 'rgba(0,113,227,0.06)', color: 'var(--accent-primary)',
-                    border: '1px solid rgba(0,113,227,0.15)',
-                    cursor: onNextAction ? 'pointer' : 'default',
-                    fontWeight: 500, fontFamily: 'var(--font-display)',
-                    transition: 'all 0.15s ease',
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.background = 'rgba(0,113,227,0.12)'
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.background = 'rgba(0,113,227,0.06)'
-                  }}
+                  disabled={!onNextAction}
                 >
                   {action.label}
                 </button>
@@ -290,11 +223,8 @@ const AIReasoningPanel: FC<Props> = ({ reasoning, nextActions, onNextAction }) =
 
           {/* Pipeline 运行元数据 */}
           {pm && (pm.total_steps || pm.pipeline_duration_ms) && (
-            <div style={{
-              padding: '8px 10px', borderRadius: 6,
-              background: 'var(--bg-hover)', border: '1px solid var(--border-light)',
-            }}>
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4, fontWeight: 600, fontFamily: 'var(--font-display)' }}>
+            <div className="ai-panel-meta">
+              <div className="ai-panel-label" style={{ marginBottom: 4 }}>
                 运行流程详情
               </div>
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 11, color: 'var(--text-secondary)' }}>

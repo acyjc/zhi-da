@@ -22,58 +22,19 @@ const EmptyState: FC<EmptyStateProps> = ({
   action,
 }) => {
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: 'var(--space-12) var(--space-6)',
-      textAlign: 'center',
-    }}>
-      {/* 大图标 */}
-      <div style={{
-        fontSize: 40,
-        lineHeight: 1,
-        marginBottom: 'var(--space-4)',
-      }}>
-        {icon}
-      </div>
-
-      {/* 标题 */}
-      <div style={{
-        fontSize: 16,
-        fontWeight: 600,
-        color: 'var(--text-primary)',
-        fontFamily: 'var(--font-display)',
-        marginBottom: description ? 'var(--space-2)' : 0,
-      }}>
+    <div className="state-container">
+      <div className="state-icon">{icon}</div>
+      <div className="state-title" style={{ marginBottom: description ? undefined : 0 }}>
         {title}
       </div>
-
-      {/* 描述 */}
       {description && (
-        <div style={{
-          fontSize: 13,
-          color: 'var(--text-secondary)',
-          lineHeight: 1.6,
-          maxWidth: 360,
-        }}>
-          {description}
-        </div>
+        <div className="state-desc">{description}</div>
       )}
-
-      {/* 操作按钮 */}
       {action && (
         <button
           className="btn btn-primary"
           onClick={action.onClick}
-          style={{
-            marginTop: 'var(--space-5)',
-            fontFamily: 'var(--font-display)',
-            fontWeight: 600,
-            fontSize: 13,
-            cursor: 'pointer',
-          }}
+          style={{ marginTop: 'var(--space-5)' }}
         >
           {action.label}
         </button>

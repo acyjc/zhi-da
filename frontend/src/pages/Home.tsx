@@ -153,15 +153,10 @@ export default function Home() {
     navigate('/student/input')
   }
 
+  const roleLabel = role === 'student' ? '学生 ID 凭证' : role === 'enterprise' ? '选择企业' : '学校管理员账号'
+
   return (
     <div className="login-page">
-      <style>{`
-        .login-submit-btn { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
-        .login-submit-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,113,227,0.2) !important; }
-        .form-input { transition: border-color 0.2s, box-shadow 0.2s; }
-        .form-input:focus { border-color: var(--accent-primary) !important; box-shadow: 0 0 0 4px rgba(0,113,227,0.08) !important; outline: none; }
-      `}</style>
-
       {/* Top Navigation */}
       <nav className="login-topbar">
         <div className="login-brand">
@@ -250,11 +245,8 @@ export default function Home() {
 
             <form onSubmit={handleSubmit} className="login-form">
               <div>
-                <label style={{
-                  display: 'block', fontSize: 12, fontWeight: 700,
-                  color: 'var(--text-secondary)', marginBottom: 8, paddingLeft: 2,
-                }}>
-                  {role === 'student' ? '学生 ID 凭证' : role === 'enterprise' ? '选择企业' : '学校管理员账号'}
+                <label className="form-label" style={{ display: 'block', marginBottom: 8, paddingLeft: 2 }}>
+                  {roleLabel}
                 </label>
 
                 {role === 'enterprise' ? (
@@ -262,13 +254,7 @@ export default function Home() {
                     value={identifier}
                     onChange={event => setIdentifier(event.target.value)}
                     disabled={loadingEnterprises}
-                    className="form-input"
-                    style={{
-                      width: '100%', padding: '12px 14px',
-                      borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)',
-                      background: 'var(--bg-card)', color: 'var(--text-primary)',
-                      fontSize: 14, outline: 'none', cursor: 'pointer', appearance: 'auto',
-                    }}
+                    className="form-select"
                   >
                     <option value="">{loadingEnterprises ? '加载企业中...' : '请选择您的企业'}</option>
                     {enterprises.map(item => (
@@ -291,21 +277,12 @@ export default function Home() {
                         : '请输入学校管理员账号'
                     }
                     className="form-input"
-                    style={{
-                      width: '100%', padding: '12px 14px',
-                      borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)',
-                      background: 'var(--bg-card)', color: 'var(--text-primary)',
-                      fontSize: 14, outline: 'none', boxSizing: 'border-box',
-                    }}
                   />
                 )}
               </div>
 
               <div>
-                <label style={{
-                  display: 'block', fontSize: 12, fontWeight: 700,
-                  color: 'var(--text-secondary)', marginBottom: 8, paddingLeft: 2,
-                }}>
+                <label className="form-label" style={{ display: 'block', marginBottom: 8, paddingLeft: 2 }}>
                   密码
                 </label>
                 <input
@@ -314,32 +291,18 @@ export default function Home() {
                   onChange={event => setPassword(event.target.value)}
                   placeholder="当前阶段无需填写密码"
                   className="form-input"
-                  style={{
-                    width: '100%', padding: '12px 14px',
-                    borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-light)',
-                    background: 'var(--bg-card)', color: 'var(--text-primary)',
-                    fontSize: 14, outline: 'none', boxSizing: 'border-box',
-                  }}
                 />
               </div>
 
               {role === 'enterprise' && selectedEnterprise && (
-                <div style={{
-                  display: 'flex', justifyContent: 'space-between',
-                  fontSize: 11, color: 'var(--text-tertiary)', padding: '0 2px', marginTop: -4,
-                }}>
+                <div className="login-enterprise-note">
                   <span>行业：{selectedEnterprise.industry || '未指定'}</span>
                   <span>编码：{selectedEnterprise.id}</span>
                 </div>
               )}
 
               {message && (
-                <div style={{
-                  padding: '10px 14px', borderRadius: 'var(--radius-sm)',
-                  background: 'rgba(255,59,48,0.06)',
-                  border: '1px solid rgba(255,59,48,0.15)',
-                  fontSize: 12, color: 'var(--accent-danger)', lineHeight: 1.5,
-                }}>
+                <div className="login-message" style={{ borderColor: 'rgba(255,59,48,0.15)' }}>
                   {message}
                 </div>
               )}
@@ -347,17 +310,7 @@ export default function Home() {
               <button
                 type="submit"
                 disabled={submitting}
-                className="login-submit-btn"
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                  width: '100%', padding: '13px 0', marginTop: 4,
-                  borderRadius: 'var(--radius-md)', border: 'none',
-                  background: 'var(--accent-primary)', color: '#fff',
-                  fontSize: 14, fontWeight: 700,
-                  cursor: submitting ? 'not-allowed' : 'pointer',
-                  opacity: submitting ? 0.7 : 1,
-                  boxShadow: '0 4px 16px rgba(0,113,227,0.2)',
-                }}
+                className="btn btn-primary login-submit"
               >
                 <LogIn size={15} />
                 {submitting ? '进入中...' : `进入${ROLE_TABS.find(t => t.key === role)?.label || '工作台'}`}
@@ -369,23 +322,8 @@ export default function Home() {
                 <button
                   type="button"
                   onClick={handleCreateStudent}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 6,
-                    padding: '10px 20px',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1.5px solid var(--accent-success)',
-                    background: 'rgba(52,199,89,0.06)',
-                    color: 'var(--accent-success)',
-                    fontSize: 13, fontWeight: 600,
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.background = 'rgba(52,199,89,0.12)'
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.background = 'rgba(52,199,89,0.06)'
-                  }}
+                  className="btn btn-success"
+                  style={{ borderRadius: 'var(--radius-md)' }}
                 >
                   新用户创建档案
                 </button>
